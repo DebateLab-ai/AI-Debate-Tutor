@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Debate MVP Tester</title>
+  <style>
+    :root { --bg: #0b0c10; --panel:#12141a; --text:#e9eef3; --muted:#8fa0b2; --accent:#6ea8fe; --danger:#ff6b6b; }
+    * { box-sizing: border-box; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
+    body { margin: 0; background: var(--bg); color: var(--text); }
+    header { padding: 16px 20px; border-bottom: 1px solid #1d2230; }
+    header h1 { margin: 0; font-size: 18px; font-weight: 600; }
+    main { display: grid; grid-template-columns: 320px 1fr; gap: 16px; padding: 16px; }
+    .card { background: var(--panel); border: 1px solid #1d2230; border-radius: 12px; padding: 14px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 6px; }
+    input[type="text"], select, textarea { width: 100%; padding: 10px; background: #0f1219; color: var(--text); border: 1px solid #263146; border-radius: 8px; }
+    textarea { min-height: 100px; }
+    input[type="file"] { width: 100%; }
+    button { appearance: none; border: 1px solid #2a3954; background: #152134; color: var(--text); padding: 10px 12px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    button.primary { background: #17325b; border-color: #264d86; }
+    button.accent { background: #112b47; border-color: #2d66a8; color: #d8e6ff; }
+    button.danger { background: #3e1216; border-color: #7c1e26; color: #ffd7db; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .muted { color: var(--muted); font-size: 12px; }
+    pre { background: #0f1219; border: 1px solid #263146; padding: 10px; border-radius: 8px; overflow: auto; }
+    .grid-3 { display:grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .pill { padding: 2px 8px; border:1px solid #2a3954; border-radius: 999px; font-size: 12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Debate MVP Tester</h1>
+  </header>
+  <main>
+    <!-- Left controls -->
+    <section class="card" id="controls">
+      <h3 style="margin-top:0">1) Create Debate</h3>
+      <div class="row">
+        <div>
+          <label>Rounds (1–3)</label>
+          <select id="rounds">
+            <option>1</option><option selected>2</option><option>3</option>
+          </select>
+        </div>
+        <div>
+          <label>Starter</label>
+          <select id="starter">
+            <option value="user" selected>User</option>
+            <option value="assistant">Assistant</option>
+          </select>
+        </div>
+      </div>
+      <label style="margin-top:8px">Title</label>
+      <input id="title" type="text" placeholder="APDA drill" />
+      <div style="display:flex; gap:8px; margin-top:10px">
+        <button class="primary" id="createBtn">Create</button>
+        <div class="pill" id="statusPill">no debate</div>
+      </div>
+      <hr style="border:none; border-top:1px solid #1d2230; margin:14px 0"/>
+
+      <h3 style="margin:0 0 8px">2) Post Turn</h3>
+      <div class="row">
+        <div>
+          <label>Speaker</label>
+          <select id="speaker">
+            <option value="user" selected>User</option>
+            <option value="assistant">Assistant</option>
+          </select>
+        </div>
+        <div>
+          <label>Round (auto)</label>
+          <input id="roundDisplay" type="text" disabled value="-"/>
+        </div>
+      </div>
+      <label style="margin-top:8px">Text Content</label>
+      <textarea id="content" placeholder="Paste speech or reply..."></textarea>
+      <div class="row" style="margin-top:8px">
+        <div>
+          <label>Audio (optional)</label>
+          <input id="audioFile" type="file" accept="audio/*"/>
+        </div>
+        <div style="align-self:end; display:flex; gap:8px; justify-content:flex-end">
+          <button id="transcribeBtn">Transcribe only</button>
+          <button class="accent" id="postTurnBtn">Post Turn</button>
+        </div>
+      </div>
+
+      <hr style="border:none; border-top:1px solid #1d2230; margin:14px 0"/>
+
+      <h3 style="margin:0 0 8px">3) Assistant Auto-Turn</h3>
+      <button id="autoBtn">Generate Assistant Turn</button>
+
+      <hr style="border:none; border-top:1px solid #1d2230; margin:14px 0"/>
+
+      <h3 style="margin:0 0 8px">4) Finish Debate</h3>
+      <button class="danger" id="finishBtn">Finish</button>
+
+      <p class="muted" style="margin-top:10px">API base: <code id="apiBaseLabel">http://localhost:8000</code></p>
+      <label>Change base URL</label>
+      <input id="apiBase" type="text" placeholder="http://localhost:8000" />
+    </section>
+
+    <!-- Right: state & logs -->
+    <section class="card" id="state">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px">
+        <div>
+          <h3 style="margin:0">Debate State</h3>
+          <p class="muted" id="debateIdLabel">ID: –</p>
+        </div>
+        <div class="grid-3">
+          <div class="pill" id="roundPill">round –</div>
+          <div class="pill" id="nextPill">next –</div>
+          <div class="pill" id="statusPill2">status –</div>
+        </div>
+      </div>
+      <pre id="stateJson" style="margin-top:10px; max-height:200px"></pre>
+
+      <h3>Messages</h3>
+      <div id="messages"></div>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let apiBase = 'http://localhost:8000';
+    let debateId = null;
+
+    function setApiBase() {
+      const v = $('apiBase').value.trim();
+      if (v) { apiBase = v.replace(/\/$/, ''); $('apiBaseLabel').textContent = apiBase; }
+    }
+    $('apiBase').addEventListener('change', setApiBase);
+
+    async function createDebate() {
+      const body = {
+        num_rounds: parseInt($('rounds').value, 10),
+        starter: $('starter').value,
+        title: $('title').value || null,
+      };
+      const r = await fetch(`${apiBase}/v1/debates`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+      });
+      if (!r.ok) { alert('Create failed'); return; }
+      const data = await r.json();
+      debateId = data.id;
+      $('debateIdLabel').textContent = 'ID: ' + debateId;
+      $('statusPill').textContent = 'active';
+      $('roundDisplay').value = data.current_round;
+      renderState();
+    }
+
+    async function renderState() {
+      if (!debateId) return;
+      const r = await fetch(`${apiBase}/v1/debates/${debateId}`);
+      if (!r.ok) { alert('Fetch state failed'); return; }
+      const data = await r.json();
+      $('roundPill').textContent = `round ${data.current_round}`;
+      $('nextPill').textContent = `next ${data.next_speaker ?? '–'}`;
+      $('statusPill2').textContent = `status ${data.status}`;
+      $('roundDisplay').value = data.current_round;
+      $('stateJson').textContent = JSON.stringify(data, null, 2);
+      const box = $('messages');
+      box.innerHTML = '';
+      (data.messages || []).forEach(m => {
+        const div = document.createElement('div');
+        div.className = 'card';
+        div.style.marginBottom = '8px';
+        div.innerHTML = `<div class="pill">R${m.round_no} · ${m.speaker}</div><pre style="margin-top:8px">${escapeHtml(m.content)}</pre>`;
+        box.appendChild(div);
+      });
+    }
+
+    async function postTurn() {
+      if (!debateId) return alert('Create a debate first');
+      const speaker = $('speaker').value;
+      const content = $('content').value.trim();
+
+      // If audio file is selected, transcribe first for convenience
+      const file = $('audioFile').files[0];
+      let finalContent = content;
+      if (!finalContent && file) {
+        const text = await doTranscribe(file);
+        if (!text) return;
+        finalContent = text;
+        $('content').value = text;
+      }
+      if (!finalContent) return alert('Provide text or an audio file');
+
+      const r = await fetch(`${apiBase}/v1/debates/${debateId}/turns`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ speaker, content: finalContent })
+      });
+      if (!r.ok) { const t = await r.text(); alert('Post turn failed: ' + t); return; }
+      await renderState();
+      $('content').value = '';
+      $('audioFile').value = '';
+    }
+
+    async function autoTurn() {
+      if (!debateId) return alert('Create a debate first');
+      const r = await fetch(`${apiBase}/v1/debates/${debateId}/auto-turn`, { method: 'POST' });
+      if (!r.ok) { const t = await r.text(); alert('Auto-turn failed: ' + t); return; }
+      await renderState();
+    }
+
+    async function finishDebate() {
+      if (!debateId) return alert('Create a debate first');
+      const r = await fetch(`${apiBase}/v1/debates/${debateId}/finish`, { method: 'POST' });
+      if (!r.ok) { alert('Finish failed'); return; }
+      await renderState();
+      $('statusPill').textContent = 'completed';
+    }
+
+    async function doTranscribe(file) {
+      const fd = new FormData();
+      fd.append('file', file);
+      const r = await fetch(`${apiBase}/v1/transcribe`, { method: 'POST', body: fd });
+      if (!r.ok) { const t = await r.text(); alert('Transcribe failed: ' + t); return null; }
+      const data = await r.json();
+      return data.text;
+    }
+
+    async function transcribeOnly() {
+      const file = $('audioFile').files[0];
+      if (!file) return alert('Pick an audio file');
+      const text = await doTranscribe(file);
+      if (text) $('content').value = text;
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
+    }
+
+    // Wire events
+    $('createBtn').addEventListener('click', createDebate);
+    $('postTurnBtn').addEventListener('click', postTurn);
+    $('autoBtn').addEventListener('click', autoTurn);
+    $('finishBtn').addEventListener('click', finishDebate);
+    $('transcribeBtn').addEventListener('click', transcribeOnly);
+
+    // Initial
+    setApiBase();
+  </script>
+</body>
+</html>

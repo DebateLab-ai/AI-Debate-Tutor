@@ -90,7 +90,7 @@ class TurnOut(BaseModel):
 
 class TranscribeOut(BaseModel):
     text: str
-    language: str | None = None
+    language: Optional[str] = None
 
 # ---------- Helpers ----------
 def second_speaker_for_round(starter: Speaker) -> Speaker:
@@ -138,9 +138,11 @@ def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
     Otherwise return a simple stub so the endpoint still works for dev.
     """
     # Build concise chat context
+    topic_context = f"Debate topic: {debate.title}" if debate.title else "Debate topic: General debate"
     sys = (
         "You are an APDA-style debater. Be clear, structured, and concise. "
-        "Signpost arguments. 1–2 short paragraphs for turns."
+        "Signpost arguments. 1–2 short paragraphs for turns. "
+        f"{topic_context}. Engage with the arguments presented and provide thoughtful counterarguments."
     )
     convo = []
     for m in messages:
@@ -148,7 +150,7 @@ def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
         tag = f"[Round {m.round_no} · {m.speaker.upper()}]"
         convo.append({"role": role, "content": f"{tag} {m.content}"})
 
-    prompt_now = f"(Current round: {debate.current_round}. You speak as {debate.next_speaker}.)"
+    prompt_now = f"(Current round: {debate.current_round} of {debate.num_rounds}. You speak as {debate.next_speaker}. Provide a thoughtful response.)"
 
     if client:
         try:
