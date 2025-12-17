@@ -121,20 +121,18 @@ class TranscribeOut(BaseModel):
 
 
 class ScoreMetrics(BaseModel):
-    clarity: float
-    structure: float
+    content_structure: float
     engagement: float
-    balance: float
+    strategy: float
 
 
 class ScoreBreakdown(BaseModel):
     overall: float
     metrics: ScoreMetrics
     feedback: str = "No overall feedback provided."
-    clarity_feedback: str = "No clarity feedback provided."
-    structure_feedback: str = "No structure feedback provided."
+    content_structure_feedback: str = "No content/structure feedback provided."
     engagement_feedback: str = "No engagement feedback provided."
-    balance_feedback: str = "No balance feedback provided."
+    strategy_feedback: str = "No strategy feedback provided."
 
 
 class ScoreOut(ScoreBreakdown):
@@ -354,12 +352,11 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
     if not messages:
         return ScoreBreakdown(
             overall=0.0,
-            metrics=ScoreMetrics(clarity=0.0, structure=0.0, engagement=0.0, balance=0.0),
+            metrics=ScoreMetrics(content_structure=0.0, engagement=0.0, strategy=0.0),
             feedback="No debate content available to score.",
-            clarity_feedback="No clarity feedback available.",
-            structure_feedback="No structure feedback available.",
+            content_structure_feedback="No content/structure feedback available.",
             engagement_feedback="No engagement feedback available.",
-            balance_feedback="No balance feedback available."
+            strategy_feedback="No strategy feedback available."
         )
 
     convo: List[Dict[str, str]] = []
@@ -374,19 +371,37 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
     system_prompt = (
         "You are DebateJudgeGPT, an expert debate adjudicator across APDA, Public Forum, and WSDC formats.\n"
         "You will be given the full transcript of a debate between a human debater (`user`) and an AI sparring partner (`assistant`).\n"
-        "Your task is to evaluate ONLY the human debater's performance. The AI serves purely as opposition context.\n\n"
-        "Score the human on these metrics (0-100 each):\n"
-        "1. Clarity & Delivery – vocal clarity, persuasive tone, pacing, accessibility of arguments.\n"
-        "2. Structure & Organization – use of roadmaps, contention structure, logical flow, internal signposting.\n"
-        "3. Engagement & Clash – responsiveness to the AI's points, refutation quality, impact weighing, comparative analysis.\n"
-        "4. Strategic Balance & Completion – effective use of allotted rounds, time management, closing strength, and overall debate completeness.\n\n"
+        "Your task is to evaluate ONLY the human debater's performance. Consider how much they engaged with the content of the opposition, if applicable. If the user is proposition\n"
+        "and there is only one proposition and one opposition block, then DO NOT consider engagement"
+        "Score the human on these metrics (0-10 each, integers only):\n"
+        "1. Content & Structure – arguments are understandable and well-explained; logical links are explicit; easy to follow; jargon is handled; clear signposting/roadmap.\n"
+        "2. Engagement – direct refutation if applicable (ONLY if the user speaks after at least one AI response); comparison; impact weighing; turns/defense.\n"
+        "3. Strategy – prioritizes win conditions; allocates time well across offense/defense; collapses to strongest arguments; avoids overinvesting in weak lines.\n"
+
+        "(MUST FOLLOW) for strategy: As long as the user makes arguments that supports their side, that is justification for a score of >= 5\n"
+
+        "Engagement applicability rule (MUST FOLLOW):\n"
+        "- Engagement is scorable ONLY if the user has a speech AFTER at least one assistant speech.\n"
+        "- If not scorable, set engagement_score=0 and engagement_feedback must be exactly: "
+        "'Not scorable: the user had no opportunity to respond to the opposition.'\n"
+        "- Do NOT mention lack of engagement as a weakness anywhere else when it is not scorable.\n"
+
+        "Anti-vagueness requirement (MUST FOLLOW):\n"
+        "- Every positive claim must include: (a) a short quote from the user (<=12 words) OR a very specific described behavior, and (b) why that helps win rounds.\n"
+        "- Every criticism must include: (a) what was missing, (b) a CONCRETE EXAMPLE OF what it should have looked like, and (c) one concrete next-step drill.\n"
+        "- Do NOT use generic phrases like 'well articulated', 'clear point', 'add evidence' unless immediately followed by a specific example.\n"
+
         "Provide:\n"
-        "- `overall_score`: holistic score (0-100) for the human debater.\n"
-        "- `feedback`: a comprehensive 4-6 sentence paragraph synthesizing strengths, critical weaknesses, and concrete next steps.\n"
-        "- For each metric, include a numeric subscore (`*_score`) AND a two-sentence targeted coaching tip (`*_feedback`) with actionable guidance referencing specific debate behaviors.\n"
-        "Return ONLY a JSON object with keys: overall_score, feedback, clarity_score, clarity_feedback, "
-        "structure_score, structure_feedback, engagement_score, engagement_feedback, "
-        "balance_score, balance_feedback.\n"
+        "- `overall_score`: holistic score (0-10) for the human debater. Weighted average: 40% content, 30% strategy, 30% Engagement\n"
+        "`feedback` must be 4–6 sentences total and follow this structure:\n"
+        "Sentence 1: Biggest strength + quote/behavior + why it matters strategically.\n"
+        "Sentence 2: Second strength + quote/behavior + why it matters.\n"
+        "Sentence 3: Biggest weakness + what was missing + what it should have looked like. *MUST FOLLOW; if score was 0 then DONT say a weakness is 'not responsive to assistant'\n"
+        "Sentence 4: Concrete next step drill (one drill) + what to measure next time.\n"
+        "(Optional sentence 5-6): Strategy collapse advice tied to this specific speech.\n"
+
+        "Return ONLY a JSON object with keys: overall_score, feedback, content_structure_score, content_structure_feedback, engagement_score, engagement_feedback, strategy_score, strategy_feedback.\n"
+        "Evidence requirement: each *_feedback must reference at least one specific behavior from the transcript; include 1–2 short quotes (<=12 words) from the user when possible.\n"
         "Do not include any additional text outside the JSON."
     )
 
@@ -406,7 +421,7 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
         resp = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=prompt,
-            temperature=0.3,
+            temperature=0.4,
         )
     except Exception as exc:
         raise HTTPException(502, f"Scoring failed: {exc}") from exc
@@ -430,10 +445,9 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
         return 0.0
 
     metrics = ScoreMetrics(
-        clarity=round(_get_float("clarity_score"), 1),
-        structure=round(_get_float("structure_score"), 1),
+        content_structure=round(_get_float("content_structure_score"), 1),
         engagement=round(_get_float("engagement_score"), 1),
-        balance=round(_get_float("balance_score"), 1),
+        strategy=round(_get_float("strategy_score"), 1),
     )
 
     overall = round(_get_float("overall_score"), 1)
@@ -442,10 +456,9 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
         overall=overall,
         metrics=metrics,
         feedback=parsed.get("feedback", "No overall feedback provided."),
-        clarity_feedback=parsed.get("clarity_feedback", "No clarity feedback provided."),
-        structure_feedback=parsed.get("structure_feedback", "No structure feedback provided."),
+        content_structure_feedback=parsed.get("content_structure_feedback", "No content/structure feedback provided."),
         engagement_feedback=parsed.get("engagement_feedback", "No engagement feedback provided."),
-        balance_feedback=parsed.get("balance_feedback", "No balance feedback provided."),
+        strategy_feedback=parsed.get("strategy_feedback", "No strategy feedback provided."),
     )
 
 
@@ -455,7 +468,7 @@ def _score_out_from_breakdown(debate_id: UUID, breakdown: ScoreBreakdown) -> Sco
         breakdown = ScoreBreakdown.model_validate(breakdown)
 
     metrics = breakdown.metrics or ScoreMetrics(
-        clarity=0.0, structure=0.0, engagement=0.0, balance=0.0
+        content_structure=0.0, engagement=0.0, strategy=0.0
     )
 
     return ScoreOut(
@@ -463,10 +476,9 @@ def _score_out_from_breakdown(debate_id: UUID, breakdown: ScoreBreakdown) -> Sco
         overall=breakdown.overall,
         metrics=metrics,
         feedback=breakdown.feedback,
-        clarity_feedback=breakdown.clarity_feedback,
-        structure_feedback=breakdown.structure_feedback,
+        content_structure_feedback=breakdown.content_structure_feedback,
         engagement_feedback=breakdown.engagement_feedback,
-        balance_feedback=breakdown.balance_feedback,
+        strategy_feedback=breakdown.strategy_feedback,
     )
 
 # ---------- 1) Create debate ----------
@@ -640,7 +652,7 @@ def get_score(debate_id: UUID):
                 metrics=getattr(
                     breakdown,
                     "metrics",
-                    ScoreMetrics(clarity=0.0, structure=0.0, engagement=0.0, balance=0.0),
+                    ScoreMetrics(content_structure=0.0, engagement=0.0, strategy=0.0),
                 ),
             )
 
