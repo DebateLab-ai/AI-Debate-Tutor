@@ -29,6 +29,11 @@ function App() {
 
   const fetchScore = async (targetId = debateId, compute = false) => {
     if (!targetId) return null
+    // Prevent multiple simultaneous score fetches
+    if (scoring) {
+      console.log('Score fetch already in progress, skipping...')
+      return null
+    }
     setScoring(true)
     try {
       const method = compute ? 'POST' : 'GET'
@@ -62,7 +67,13 @@ function App() {
   useEffect(() => {
     if (debateId) {
       fetchDebate()
-      const interval = setInterval(fetchDebate, 2000) // Poll every 2 seconds
+      // Only poll if debate is active, stop polling once completed
+      const interval = setInterval(async () => {
+        const data = await fetchDebate()
+        if (data?.status === 'completed') {
+          clearInterval(interval)
+        }
+      }, 2000)
       return () => clearInterval(interval)
     }
   }, [debateId])
@@ -80,8 +91,10 @@ function App() {
         data.status === 'completed' &&
         targetId === debateId &&
         (!score || score.debate_id !== targetId) &&
-        !scoring
+        !scoring &&
+        !scoreError
       ) {
+        // Only fetch score once when debate completes
         fetchScore(targetId, false)
       }
       return data
@@ -312,10 +325,11 @@ function App() {
   }
 
   const getScoreGrade = (score) => {
-    if (score >= 90) return 'Excellent'
-    if (score >= 80) return 'Great'
-    if (score >= 70) return 'Good'
-    if (score >= 60) return 'Fair'
+    // Score is on a 0-10 scale
+    if (score >= 9) return 'Excellent'
+    if (score >= 8) return 'Great'
+    if (score >= 7) return 'Good'
+    if (score >= 6) return 'Fair'
     return 'Needs Improvement'
   }
 
@@ -332,9 +346,7 @@ function App() {
               </h1>
               <p className="landing-description">
                 Hone your debating skills with an intelligent AI opponent powered by a proprietary model 
-                trained on thousands of hours of debates and speeches from the world's best. 
-                Practice structured arguments, receive detailed feedback, and improve your 
-                persuasive abilities in a safe, interactive environment.
+                trained on thousands of hours of debates and speeches from the world's best.
               </p>
               <button 
                 className="cta-button"
@@ -349,7 +361,7 @@ function App() {
               <div className="feature-card">
                 <div className="feature-icon">🤖</div>
                 <h3>AI Opponent</h3>
-                <p>Debate against an advanced AI powered by a proprietary model trained on thousands of hours of debates and speeches from the world's best debaters.</p>
+                <p>Debate against an advanced AI trained on thousands of hours of world-class debates and speeches.</p>
               </div>
               <div className="feature-card">
                 <div className="feature-icon">🎓</div>
@@ -556,40 +568,35 @@ function App() {
                   data-grade={getScoreGrade(score.overall).toLowerCase().replace(/\s+/g, '-')}
                 >
                   <div className="score-number">{Math.round(score.overall)}</div>
-                  <div className="score-label">out of 100</div>
+                  <div className="score-label">out of 10</div>
                   <div className="score-bar-container">
                     <div 
                       className="score-bar-fill" 
-                      style={{ width: `${score.overall}%` }}
+                      style={{ width: `${(score.overall / 10) * 100}%` }}
                     ></div>
                   </div>
                   <div className="score-grade">{getScoreGrade(score.overall)}</div>
                 </div>
                 <div className="score-metrics">
                   <div>
-                    <span>Clarity & Delivery</span>
-                    <strong>{score.metrics?.clarity?.toFixed(1) ?? '–'}</strong>
-                    <small>{score.clarity_feedback}</small>
-                  </div>
-                  <div>
-                    <span>Structure & Organization</span>
-                    <strong>{score.metrics?.structure?.toFixed(1) ?? '–'}</strong>
-                    <small>{score.structure_feedback}</small>
+                    <span>Content & Structure</span>
+                    <strong>{score.metrics?.content_structure != null ? score.metrics.content_structure.toFixed(1) : '–'}</strong>
+                    <small>{score.content_structure_feedback || 'No feedback available.'}</small>
                   </div>
                   <div>
                     <span>Engagement & Clash</span>
-                    <strong>{score.metrics?.engagement?.toFixed(1) ?? '–'}</strong>
-                    <small>{score.engagement_feedback}</small>
+                    <strong>{score.metrics?.engagement != null ? score.metrics.engagement.toFixed(1) : '–'}</strong>
+                    <small>{score.engagement_feedback || 'No feedback available.'}</small>
                   </div>
                   <div>
-                    <span>Balance & Completion</span>
-                    <strong>{score.metrics?.balance?.toFixed(1) ?? '–'}</strong>
-                    <small>{score.balance_feedback}</small>
+                    <span>Strategy & Execution</span>
+                    <strong>{score.metrics?.strategy != null ? score.metrics.strategy.toFixed(1) : '–'}</strong>
+                    <small>{score.strategy_feedback || 'No feedback available.'}</small>
                   </div>
                 </div>
                 <div className="score-feedback">
                   <h4>Judge Feedback</h4>
-                  <p>{score.feedback}</p>
+                  <p>{score.feedback || 'No overall feedback available.'}</p>
                 </div>
               </div>
             ) : (

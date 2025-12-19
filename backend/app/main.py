@@ -371,22 +371,28 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
             "content": f"[Round {msg.round_no} · {speaker}] {msg.content}"
         })
 
+    # Determine user position and number of rounds from debate
+    user_is_for = "User: for" in (debate.title or "").lower() or "(User: FOR" in (debate.title or "")
+    num_rounds = debate.num_rounds
+    
     system_prompt = (
         "You are DebateJudgeGPT, an expert debate adjudicator across APDA, Public Forum, and WSDC formats.\n"
         "You will be given the full transcript of a debate between a human debater (`user`) and an AI sparring partner (`assistant`).\n"
-        "Your task is to evaluate ONLY the human debater's performance. Consider how much they engaged with the content of the opposition, if applicable. If the user is proposition\n"
-        "and there is only one proposition and one opposition block, then DO NOT consider engagement"
+        "Your task is to evaluate ONLY the human debater's performance.\n\n"
+        f"Context: The user is {'FOR' if user_is_for else 'AGAINST'} the motion. The debate has {num_rounds} round(s).\n\n"
         "Score the human on these metrics (0-10 each, integers only):\n"
         "1. Content & Structure – arguments are understandable and well-explained; logical links are explicit; easy to follow; jargon is handled; clear signposting/roadmap.\n"
-        "2. Engagement – direct refutation if applicable (ONLY if the user speaks after at least one AI response); comparison; impact weighing; turns/defense.\n"
+        "2. Engagement – direct refutation, comparison, impact weighing, turns/defense. (See engagement applicability rule below for when this is scorable.)\n"
         "3. Strategy – prioritizes win conditions; allocates time well across offense/defense; collapses to strongest arguments; avoids overinvesting in weak lines.\n"
 
         "(MUST FOLLOW) for strategy: As long as the user makes arguments that supports their side, that is justification for a score of >= 5\n"
 
         "Engagement applicability rule (MUST FOLLOW):\n"
-        "- Engagement is scorable ONLY if the user has a speech AFTER at least one assistant speech.\n"
-        "- If not scorable, set engagement_score=0 and engagement_feedback must be exactly: "
+        "- Engagement is NOT scorable ONLY if: the user is FOR (proposition) AND there is only 1 round total.\n"
+        "- In ALL other cases (user is AGAINST, OR user is FOR with 2+ rounds), engagement IS scorable and should be evaluated normally.\n"
+        "- If engagement is not scorable (user is FOR with 1 round), set engagement_score=0 and engagement_feedback must be exactly: "
         "'Not scorable: the user had no opportunity to respond to the opposition.'\n"
+        "- If engagement IS scorable, evaluate it normally (0-10) based on direct refutation, comparison, impact weighing, turns/defense.\n"
         "- Do NOT mention lack of engagement as a weakness anywhere else when it is not scorable.\n"
 
         "Anti-vagueness requirement (MUST FOLLOW):\n"
@@ -403,9 +409,20 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
         "Sentence 4: Concrete next step drill (one drill) + what to measure next time.\n"
         "(Optional sentence 5-6): Strategy collapse advice tied to this specific speech.\n"
 
-        "Return ONLY a JSON object with keys: overall_score, feedback, content_structure_score, content_structure_feedback, engagement_score, engagement_feedback, strategy_score, strategy_feedback.\n"
+        "CRITICAL: You MUST return a JSON object with EXACTLY these 8 keys. Missing any key will cause the scoring to fail.\n\n"
+        "Required JSON structure:\n"
+        "{\n"
+        '  "overall_score": <number 0-10>,\n'
+        '  "feedback": "<4-6 sentence string>",\n'
+        '  "content_structure_score": <number 0-10>,\n'
+        '  "content_structure_feedback": "<2 sentence string with specific examples>",\n'
+        '  "engagement_score": <number 0-10>,\n'
+        '  "engagement_feedback": "<2 sentence string OR exact text if not scorable>",\n'
+        '  "strategy_score": <number 0-10>,\n'
+        '  "strategy_feedback": "<2 sentence string with specific examples>"\n'
+        "}\n\n"
         "Evidence requirement: each *_feedback must reference at least one specific behavior from the transcript; include 1–2 short quotes (<=12 words) from the user when possible.\n"
-        "Do not include any additional text outside the JSON."
+        "Return ONLY the JSON object. No markdown code blocks, no explanations, no additional text."
     )
 
     prompt = [
@@ -425,6 +442,7 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
             model="gpt-4o-mini",
             messages=prompt,
             temperature=0.4,
+            response_format={"type": "json_object"},  # Force JSON output
         )
     except Exception as exc:
         raise HTTPException(502, f"Scoring failed: {exc}") from exc
@@ -436,15 +454,24 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
     except json.JSONDecodeError:
         raise HTTPException(502, f"Scoring response malformed: {raw}")
 
+    # Log what keys the LLM actually returned
+    print(f"[DEBUG] LLM returned keys: {list(parsed.keys())}")
+    print(f"[DEBUG] engagement_score value: {parsed.get('engagement_score', 'MISSING')}")
+
     def _get_float(key: str) -> float:
         value = parsed.get(key)
+        if value is None:
+            print(f"[WARNING] Key '{key}' is missing from LLM response. Available keys: {list(parsed.keys())}")
+            return 0.0
         if isinstance(value, (int, float)):
             return float(value)
         if isinstance(value, str):
             try:
                 return float(value)
             except ValueError:
+                print(f"[WARNING] Could not convert '{key}' value '{value}' to float")
                 return 0.0
+        print(f"[WARNING] Unexpected type for '{key}': {type(value)}")
         return 0.0
 
     metrics = ScoreMetrics(
