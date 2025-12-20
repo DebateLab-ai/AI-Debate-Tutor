@@ -66,15 +66,8 @@ function App() {
   }
   useEffect(() => {
     if (debateId) {
+      // Initial fetch when debate is created
       fetchDebate()
-      // Only poll if debate is active, stop polling once completed
-      const interval = setInterval(async () => {
-        const data = await fetchDebate()
-        if (data?.status === 'completed') {
-          clearInterval(interval)
-        }
-      }, 2000)
-      return () => clearInterval(interval)
     }
   }, [debateId])
 
@@ -94,7 +87,7 @@ function App() {
         !scoring &&
         !scoreError
       ) {
-        // Only fetch score once when debate completes
+        // Try GET first (score might already exist from a previous check)
         fetchScore(targetId, false)
       }
       return data
@@ -233,12 +226,29 @@ function App() {
       const turnData = await response.json()
       console.log('Turn submitted, response:', turnData)
       
+      // Create message object from the submission
+      // Note: TurnOut doesn't include content, so we use the original argument
+      const newMessage = {
+        id: turnData.message_id,
+        round_no: turnData.round_no,
+        speaker: 'user',
+        content: finalContent,
+        created_at: new Date().toISOString(),
+      }
+      
+      // Update messages state immediately
+      setMessages(prev => [...prev, newMessage])
+      
+      // Update debate state from the response
+      setDebate(prev => prev ? {
+        ...prev,
+        current_round: turnData.current_round,
+        next_speaker: turnData.next_speaker,
+        status: turnData.status,
+      } : null)
+      
       setArgument('')
       setAudioFile(null)
-      
-      // Refresh debate state to get latest messages
-      const updatedDebate = await fetchDebate()
-      console.log('Updated debate after turn:', updatedDebate)
       
       // Auto-generate AI response if it's the assistant's turn
       if (turnData.status === 'active' && turnData.next_speaker === 'assistant') {
@@ -248,7 +258,8 @@ function App() {
           generateAITurn(debateId)
         }, 800)
       } else if (turnData.status === 'completed') {
-        await fetchScore(debateId, false)
+        // Compute score directly (POST) since we know it doesn't exist yet
+        await fetchScore(debateId, true)
       }
     } catch (error) {
       alert('Failed to submit argument: ' + error.message)
@@ -270,14 +281,33 @@ function App() {
         throw new Error(errorText)
       }
       
-      // Get the AI response data - this contains the message content
+      // Get the AI response data - use it directly instead of refetching
       const aiTurnData = await response.json()
       console.log('AI turn generated:', aiTurnData)
       
-      // Immediately refresh to show the new message
-      const updated = await fetchDebate(targetId)
-      if (updated?.status === 'completed') {
-        await fetchScore(targetId, false)
+      // Create message object from the response
+      const newMessage = {
+        id: aiTurnData.message_id,
+        round_no: aiTurnData.round_no,
+        speaker: 'assistant',
+        content: aiTurnData.content,
+        created_at: new Date().toISOString(),
+      }
+      
+      // Update messages state immediately
+      setMessages(prev => [...prev, newMessage])
+      
+      // Update debate state from the response
+      setDebate(prev => prev ? {
+        ...prev,
+        current_round: aiTurnData.current_round,
+        next_speaker: aiTurnData.next_speaker,
+        status: aiTurnData.status,
+      } : null)
+      
+      // If debate completed, compute the score (POST directly since we know it doesn't exist yet)
+      if (aiTurnData.status === 'completed') {
+        await fetchScore(targetId, true)
       }
     } catch (error) {
       console.error('Error generating AI turn:', error)
