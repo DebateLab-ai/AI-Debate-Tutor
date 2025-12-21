@@ -66,6 +66,7 @@ class Debate(BaseModel):
     status: Status = "active"
     created_at: datetime
     updated_at: datetime
+    mode: Literal["casual", "parliamentary"] = "casual"
 
 class Message(BaseModel):
     id: UUID
@@ -82,8 +83,9 @@ SCORES: Dict[UUID, "ScoreBreakdown"] = {}
 # ---------- Schemas (I/O) ----------
 class DebateCreate(BaseModel):
     title: Optional[str] = None
-    num_rounds: int = Field(ge=1, le=3)
+    num_rounds: int = Field(ge=1, le=10)  # Max 10 for casual mode, validated in endpoint
     starter: Speaker
+    mode: Literal["casual", "parliamentary"] = "casual"
 
 class DebateOut(BaseModel):
     id: UUID
@@ -95,6 +97,7 @@ class DebateOut(BaseModel):
     status: Status
     created_at: datetime
     updated_at: datetime
+    mode: Literal["casual", "parliamentary"] = "casual"
 
 class MessageOut(BaseModel):
     id: UUID
@@ -218,11 +221,13 @@ def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
     """
     Produce assistant text using RAG-powered generation when available.
     Falls back to basic GPT-4o-mini if RAG is not initialized.
+    In casual mode, skips RAG and uses a more conversational prompt.
     """
     motion = debate.title if debate.title else "General debate topic"
+    use_rag = debate.mode == "parliamentary" and rag_system is not None
 
-    # If we have RAG and this is a rebuttal (not the first turn)
-    if rag_system and len(messages) > 0:
+    # If we have RAG, parliamentary mode, and this is a rebuttal (not the first turn)
+    if use_rag and len(messages) > 0:
         # Determine side - assistant is Opposition if starter is user, Government if starter is assistant
         side = "Opposition" if debate.starter == "user" else "Government"
 
@@ -248,8 +253,8 @@ def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
             except Exception as e:
                 print(f"[RAG] Rebuttal generation failed: {e}, falling back to basic generation")
 
-    # If this is the first turn and we have RAG
-    if rag_system and len(messages) == 0:
+    # If this is the first turn and we have RAG (parliamentary mode)
+    if use_rag and len(messages) == 0:
         side = "Government" if debate.starter == "assistant" else "Opposition"
         try:
             result = generate_debate_with_coach_loop(
@@ -270,9 +275,15 @@ def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
         except Exception as e:
             print(f"[RAG] Speech generation failed: {e}, falling back to basic generation")
 
-    # Fallback: use similar style to fine-tuned prompts in response.py
+    # Fallback: use mode-appropriate prompts
     topic_context = f"Debate topic: {motion}"
-    sys = """You are a world-class competitive debater. Your goal is to WIN through sharp, incisive argumentation—not through aggression. Be strategic, precise, and respectful. Fill gaps with compelling real-world examples that any educated voter would recognize—think NYT front page, not academic journals. Use concrete mechanisms and numbers. Make clear, fair comparisons that demonstrate why your case is stronger. Sound like a human champion debater who wins through superior logic and analysis, not an essay or a robot.
+    
+    if debate.mode == "casual":
+        # Casual mode: more conversational, no RAG, less formal structure, optimized for speed
+        sys = """You are a debate partner who directly challenges arguments. Be concise—keep responses to 2 paragraphs maximum. Don't be polite or acknowledge their points—immediately refute what they said. Point out flaws in their reasoning, challenge their examples, and explain why they're wrong. Be direct and confrontational, not nice."""
+    else:
+        # Parliamentary mode: formal debate structure
+        sys = """You are a world-class competitive debater. Your goal is to WIN through sharp, incisive argumentation—not through aggression. Be strategic, precise, and respectful. Fill gaps with compelling real-world examples that any educated voter would recognize—think NYT front page, not academic journals. Use concrete mechanisms and numbers. Make clear, fair comparisons that demonstrate why your case is stronger. Sound like a human champion debater who wins through superior logic and analysis, not an essay or a robot.
 If the
 When delivering your speech:
 - SIGNPOST HEAVILY: Label everything clearly
@@ -297,7 +308,17 @@ When delivering your speech:
     opponent_messages = [m for m in messages if m.speaker != debate.next_speaker]
     if opponent_messages:
         # Rebuttal situation
-        prompt_now = f"""Motion: {topic_context}
+        if debate.mode == "casual":
+            # Get the last user message to reference their specific points
+            last_user_msg = opponent_messages[-1].content if opponent_messages else ""
+            prompt_now = f"""Topic: {topic_context}
+Round {debate.current_round} of {debate.num_rounds}
+
+They just said: "{last_user_msg[:200]}{'...' if len(last_user_msg) > 200 else ''}"
+
+Refute their argument directly (max 2 paragraphs). Don't acknowledge or agree with anything they said—attack their reasoning, challenge their examples, explain why their logic fails, and point out flaws. Be direct and confrontational. Quote specific parts of what they said and explain why those points are wrong."""
+        else:
+            prompt_now = f"""Motion: {topic_context}
 Current round: {debate.current_round} of {debate.num_rounds}
 
 Deliver a rebuttal speech that:
@@ -311,7 +332,13 @@ Deliver a rebuttal speech that:
 Be sharp, precise, and demonstrate why your case is stronger."""
     else:
         # Opening speech
-        prompt_now = f"""Motion: {topic_context}
+        if debate.mode == "casual":
+            prompt_now = f"""Topic: {topic_context}
+Round {debate.current_round} of {debate.num_rounds}
+
+Share your perspective briefly (max 2 paragraphs). Make one clear argument with a good example. Keep it conversational and concise—like explaining your position quickly to a friend."""
+        else:
+            prompt_now = f"""Motion: {topic_context}
 Current round: {debate.current_round} of {debate.num_rounds}
 
 Deliver an opening speech following the structure:
@@ -324,12 +351,15 @@ Make your case compelling and well-structured."""
 
     if client:
         try:
+            # Use lower max_tokens for casual mode to ensure faster, shorter responses
+            max_tokens = 300 if debate.mode == "casual" else None
             resp = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "system", "content": sys}] + convo + [
                     {"role": "user", "content": prompt_now}
                 ],
                 temperature=0.7,  # Higher temp since no RAG context (matches response.py adaptive logic)
+                max_tokens=max_tokens,
             )
             return resp.choices[0].message.content.strip()
         except Exception:
@@ -527,6 +557,12 @@ def _score_out_from_breakdown(debate_id: UUID, breakdown: ScoreBreakdown) -> Sco
 # ---------- 1) Create debate ----------
 @app.post("/v1/debates", response_model=DebateOut, status_code=201)
 def create_debate(body: DebateCreate):
+    # Validate num_rounds based on mode
+    if body.mode == "parliamentary" and body.num_rounds > 3:
+        raise HTTPException(400, "Parliamentary mode supports up to 3 rounds")
+    if body.mode == "casual" and body.num_rounds > 10:
+        raise HTTPException(400, "Casual mode supports up to 10 rounds")
+    
     did = uuid4()
     now = datetime.utcnow()
     debate = Debate(
@@ -539,6 +575,7 @@ def create_debate(body: DebateCreate):
         status="active",
         created_at=now,
         updated_at=now,
+        mode=body.mode,
     )
     DEBATES[did] = debate
     MESSAGES[did] = []

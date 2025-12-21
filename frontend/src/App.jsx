@@ -14,9 +14,10 @@ function App() {
   
   // Landing/Setup state
   const [showLanding, setShowLanding] = useState(true)
-  const [topic, setTopic] = useState('')
+  const [topic, setTopic] = useState('Social media does more harm than good')
   const [position, setPosition] = useState('for') // 'for' or 'against'
-  const [numRounds, setNumRounds] = useState(1)
+  const [numRounds, setNumRounds] = useState(2)
+  const [mode, setMode] = useState('casual') // 'parliamentary' or 'casual'
   const [setupComplete, setSetupComplete] = useState(false)
   
   // Input state
@@ -116,6 +117,7 @@ function App() {
           num_rounds: numRounds,
           starter,
           title: `${topic} (User: ${position}, You take the opposite position)`,
+          mode: mode,
         }),
       })
 
@@ -352,6 +354,9 @@ function App() {
     setRecording(false)
     setTranscribing(false)
     setMediaRecorder(null)
+    setMode('casual')
+    setTopic('Social media does more harm than good')
+    setNumRounds(2)
   }
 
   const getScoreGrade = (score) => {
@@ -419,7 +424,7 @@ function App() {
         </button>
         <div className="setup-container">
           <div className="setup-card">
-            <h1>DebateLab</h1>
+            <h1>New Debate</h1>
             <p className="subtitle">Practice your debating skills with an AI opponent</p>
             
             <div className="form-group">
@@ -453,15 +458,55 @@ function App() {
             </div>
 
             <div className="form-group">
+              <label>Debate Mode</label>
+              <div className="position-buttons">
+                <button
+                  className={mode === 'casual' ? 'position-btn active' : 'position-btn'}
+                  onClick={() => setMode('casual')}
+                >
+                  Casual
+                  <small>Conversational</small>
+                </button>
+                <button
+                  className={mode === 'parliamentary' ? 'position-btn active' : 'position-btn'}
+                  onClick={() => {
+                    setMode('parliamentary')
+                    if (numRounds > 3) setNumRounds(3) // Cap rounds for parliamentary
+                  }}
+                >
+                  Parliamentary
+                  <small>Competition debate</small>
+                </button>
+              </div>
+            </div>
+
+            <div className="form-group">
               <label>Number of Rounds</label>
               <select
                 value={numRounds}
                 onChange={(e) => setNumRounds(parseInt(e.target.value))}
                 className="input-large"
               >
-                <option value={1}>1 Round</option>
-                <option value={2}>2 Rounds</option>
-                <option value={3}>3 Rounds</option>
+                {mode === 'parliamentary' ? (
+                  <>
+                    <option value={1}>1 Round</option>
+                    <option value={2}>2 Rounds</option>
+                    <option value={3}>3 Rounds</option>
+                  </>
+                ) : (
+                  <>
+                    <option value={1}>1 Round</option>
+                    <option value={2}>2 Rounds</option>
+                    <option value={3}>3 Rounds</option>
+                    <option value={4}>4 Rounds</option>
+                    <option value={5}>5 Rounds</option>
+                    <option value={6}>6 Rounds</option>
+                    <option value={7}>7 Rounds</option>
+                    <option value={8}>8 Rounds</option>
+                    <option value={9}>9 Rounds</option>
+                    <option value={10}>10 Rounds</option>
+                  </>
+                )}
               </select>
             </div>
 
