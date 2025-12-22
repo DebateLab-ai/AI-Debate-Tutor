@@ -139,6 +139,7 @@ class ScoreBreakdown(BaseModel):
     content_structure_feedback: str = "No content/structure feedback provided."
     engagement_feedback: str = "No engagement feedback provided."
     strategy_feedback: str = "No strategy feedback provided."
+    weakness_type: Optional[Literal["rebuttal", "structure", "weighing", "evidence", "strategy"]] = None
 
 
 class ScoreOut(ScoreBreakdown):
@@ -181,6 +182,7 @@ class CorpusStatsResponse(BaseModel):
 class DrillStartRequest(BaseModel):
     motion: str = Field(min_length=1)
     user_position: Literal["for", "against"]  # The position the user took in the debate
+    weakness_type: Optional[Literal["rebuttal", "structure", "weighing", "evidence", "strategy"]] = None  # Type of drill to focus on
 
 class DrillClaimResponse(BaseModel):
     claim: str
@@ -191,6 +193,7 @@ class DrillRebuttalSubmit(BaseModel):
     claim: str = Field(min_length=1)
     claim_position: Literal["for", "against"]
     rebuttal: str = Field(min_length=1)
+    weakness_type: Optional[Literal["rebuttal", "structure", "weighing", "evidence", "strategy"]] = None
 
 class DrillRebuttalMetrics(BaseModel):
     refutation_quality: float  # 0-10: How well they negate/mitigate the claim
@@ -468,8 +471,8 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
         "Sentence 4: Concrete next step drill (one drill) + what to measure next time.\n"
         "(Optional sentence 5-6): Strategy collapse advice tied to this specific speech.\n"
 
-        "CRITICAL: You MUST return a JSON object with EXACTLY these 8 keys. Missing any key will cause the scoring to fail.\n\n"
-        "MANDATORY JSON structure - you MUST include ALL 8 keys:\n"
+        "CRITICAL: You MUST return a JSON object with EXACTLY these 9 keys. Missing any key will cause the scoring to fail.\n\n"
+        "MANDATORY JSON structure - you MUST include ALL 9 keys:\n"
         "{\n"
         '  "overall_score": <number 0-10 (integer)>,\n'
         '  "feedback": "<4-6 sentence string>",\n'
@@ -478,8 +481,16 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
         '  "engagement_score": <number 0-10 (integer)>,\n'
         '  "engagement_feedback": "<2 sentence string OR exact text if not scorable>",\n'
         '  "strategy_score": <number 0-10 (integer)>,\n'
-        '  "strategy_feedback": "<2 sentence string with specific examples>"\n'
+        '  "strategy_feedback": "<2 sentence string with specific examples>",\n'
+        '  "weakness_type": "<one of: rebuttal, structure, weighing, evidence, strategy>"\n'
         "}\n\n"
+        "For weakness_type: Identify the PRIMARY area that needs improvement based on the scores and feedback:\n"
+        "- 'rebuttal': If engagement_score is lowest (or < 6) and feedback mentions refutation, direct engagement, or responding to opponent\n"
+        "- 'structure': If content_structure_score is lowest (or < 6) and feedback mentions organization, signposting, clarity, or logical flow\n"
+        "- 'weighing': If feedback mentions impact comparison, probability/magnitude/timeframe, or comparative analysis\n"
+        "- 'evidence': If feedback mentions lack of examples, data, concrete scenarios, or real-world evidence\n"
+        "- 'strategy': If strategy_score is lowest (or < 6) and feedback mentions time allocation, prioritization, or collapsing to strongest arguments\n"
+        "If multiple areas are weak, choose the one with the lowest score. If scores are tied, prioritize: engagement > structure > strategy.\n\n"
         "YOU MUST PROVIDE ALL 8 KEYS. Do not omit content_structure_score, engagement_score, or strategy_score.\n"
         "Evidence requirement: each *_feedback must reference at least one specific behavior from the USER's messages in the transcript; include 1–2 short quotes (<=12 words) from USER messages when possible. Do NOT quote or reference ASSISTANT messages.\n"
         "CRITICAL: When providing feedback, only discuss what the USER (human debater) did. Never mention or evaluate what the ASSISTANT (AI) said.\n"
@@ -556,6 +567,34 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
 
     overall = round(_get_float("overall_score"), 1)
 
+    # Extract weakness_type with validation
+    weakness_type_raw = parsed.get("weakness_type", "").lower()
+    valid_weakness_types = ["rebuttal", "structure", "weighing", "evidence", "strategy"]
+    weakness_type = weakness_type_raw if weakness_type_raw in valid_weakness_types else None
+    
+    # Fallback: determine weakness_type from scores if not provided or invalid
+    if not weakness_type:
+        scores = {
+            "engagement": metrics.engagement,
+            "content_structure": metrics.content_structure,
+            "strategy": metrics.strategy,
+        }
+        # Find lowest score, but only if engagement is scorable
+        if metrics.engagement == 0 and "Not scorable" in parsed.get("engagement_feedback", ""):
+            # Engagement not scorable, compare structure vs strategy
+            if metrics.content_structure <= metrics.strategy:
+                weakness_type = "structure"
+            else:
+                weakness_type = "strategy"
+        else:
+            lowest = min(scores.items(), key=lambda x: x[1])
+            if lowest[0] == "engagement":
+                weakness_type = "rebuttal"
+            elif lowest[0] == "content_structure":
+                weakness_type = "structure"
+            else:
+                weakness_type = "strategy"
+
     return ScoreBreakdown(
         overall=overall,
         metrics=metrics,
@@ -563,6 +602,7 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
         content_structure_feedback=parsed.get("content_structure_feedback", "No content/structure feedback provided."),
         engagement_feedback=parsed.get("engagement_feedback", "No engagement feedback provided."),
         strategy_feedback=parsed.get("strategy_feedback", "No strategy feedback provided."),
+        weakness_type=weakness_type,
     )
 
 
@@ -583,6 +623,7 @@ def _score_out_from_breakdown(debate_id: UUID, breakdown: ScoreBreakdown) -> Sco
         content_structure_feedback=breakdown.content_structure_feedback,
         engagement_feedback=breakdown.engagement_feedback,
         strategy_feedback=breakdown.strategy_feedback,
+        weakness_type=breakdown.weakness_type,
     )
 
 # ---------- 1) Create debate ----------
@@ -774,12 +815,19 @@ def get_score(debate_id: UUID):
 
 
 # ---------- Drill System ----------
-def generate_drill_claim(motion: str, claim_position: Literal["for", "against"]) -> str:
-    """Generate a claim for the drill based on the motion and position."""
+def generate_drill_claim(
+    motion: str, 
+    claim_position: Literal["for", "against"],
+    weakness_type: Optional[Literal["rebuttal", "structure", "weighing", "evidence", "strategy"]] = None
+) -> str:
+    """Generate a claim for the drill based on the motion, position, and weakness type."""
     if not client:
         return f"Sample claim {claim_position} the motion: {motion}"
 
-    system_prompt = (
+    position_text = "FOR" if claim_position == "for" else "AGAINST"
+    
+    # Base prompt for all drill types
+    base_instructions = (
         "You are a debate argument generator. Your job is to generate a single, strong claim "
         "that a debater might make in a debate. The claim should be:\n"
         "- One clear argument (2-3 sentences max)\n"
@@ -788,8 +836,46 @@ def generate_drill_claim(motion: str, claim_position: Literal["for", "against"])
         "- Be realistic and arguable (not obviously true/false)\n\n"
         "Do NOT include labels like 'Claim:', just output the argument directly."
     )
+    
+    # Weakness-specific instructions
+    weakness_instructions = {
+        "rebuttal": (
+            "Focus: Generate a claim that requires direct refutation. The claim should:\n"
+            "- Make a clear, testable assertion that can be challenged\n"
+            "- Include a mechanism that has potential flaws or assumptions\n"
+            "- Be structured so a good rebuttal would identify logical gaps or counter-examples"
+        ),
+        "structure": (
+            "Focus: Generate a claim that needs clear organization. The claim should:\n"
+            "- Be complex enough to require signposting and clear structure\n"
+            "- Have multiple components that need logical ordering\n"
+            "- Benefit from explicit framing and roadmap"
+        ),
+        "weighing": (
+            "Focus: Generate a claim with significant impacts that need comparison. The claim should:\n"
+            "- Emphasize probability, magnitude, or timeframe of impacts\n"
+            "- Present impacts that can be weighed against alternatives\n"
+            "- Require explicit impact calculus and comparative analysis"
+        ),
+        "evidence": (
+            "Focus: Generate a claim that needs concrete evidence. The claim should:\n"
+            "- Make specific factual assertions that can be supported with examples\n"
+            "- Reference real-world scenarios or data points\n"
+            "- Benefit from concrete counter-examples or case studies"
+        ),
+        "strategy": (
+            "Focus: Generate a claim that requires strategic prioritization. The claim should:\n"
+            "- Present multiple potential responses, requiring the debater to choose which to emphasize\n"
+            "- Have varying levels of strength that need strategic allocation\n"
+            "- Require decisions about time investment and argument selection"
+        ),
+    }
+    
+    if weakness_type and weakness_type in weakness_instructions:
+        system_prompt = f"{base_instructions}\n\n{weakness_instructions[weakness_type]}"
+    else:
+        system_prompt = base_instructions
 
-    position_text = "FOR" if claim_position == "for" else "AGAINST"
     user_prompt = f"Motion: {motion}\n\nGenerate one strong argument {position_text} this motion."
 
     try:
@@ -808,21 +894,75 @@ def generate_drill_claim(motion: str, claim_position: Literal["for", "against"])
         return f"Sample claim {claim_position} the motion: {motion}"
 
 
-def score_drill_rebuttal(motion: str, claim: str, claim_position: str, rebuttal: str) -> dict:
-    """Score a drill rebuttal and return metrics + feedback."""
+def score_drill_rebuttal(
+    motion: str, 
+    claim: str, 
+    claim_position: str, 
+    rebuttal: str,
+    weakness_type: Optional[Literal["rebuttal", "structure", "weighing", "evidence", "strategy"]] = None
+) -> dict:
+    """Score a drill rebuttal and return metrics + feedback, tailored to weakness type."""
     if not client:
         raise HTTPException(503, "Drill scoring requires OpenAI API key")
 
-    system_prompt = (
-        "You are a debate coach evaluating a student's rebuttal drill.\n\n"
-        "The student was given a claim and asked to rebut it. Evaluate their rebuttal on:\n"
+    # Base evaluation criteria
+    base_criteria = (
+        "You are a debate coach evaluating a student's drill response.\n\n"
+        "The student was given a claim and asked to respond to it. Evaluate their response on:\n"
         "1. Refutation Quality (0-10): How well do they negate or mitigate the claim? Do they identify flaws in logic, challenge assumptions, or show why the claim doesn't hold?\n"
-        "2. Evidence/Examples (0-10): Do they use concrete counter-examples, data, or real-world scenarios to support their refutation?\n"
+        "2. Evidence/Examples (0-10): Do they use concrete counter-examples, data, or real-world scenarios to support their response?\n"
         "3. Impact Comparison (0-10): Do they weigh their response against the claim? Do they explain why their point matters more or undermines the claim's significance?\n\n"
+    )
+    
+    # Weakness-specific focus areas
+    weakness_focus = {
+        "rebuttal": (
+            "FOCUS: Pay special attention to Refutation Quality. The student should:\n"
+            "- Directly address the claim's logic and assumptions\n"
+            "- Identify specific flaws or gaps in reasoning\n"
+            "- Show clear negation or mitigation of the claim\n"
+            "Weight Refutation Quality more heavily in overall_score.\n\n"
+        ),
+        "structure": (
+            "FOCUS: Pay special attention to organization and clarity. The student should:\n"
+            "- Use clear signposting and structure\n"
+            "- Have logical flow and explicit links\n"
+            "- Make it easy to follow their argument\n"
+            "Weight clarity and organization more heavily in overall_score.\n\n"
+        ),
+        "weighing": (
+            "FOCUS: Pay special attention to Impact Comparison. The student should:\n"
+            "- Explicitly compare probability, magnitude, and timeframe\n"
+            "- Make clear comparative statements\n"
+            "- Explain why their response matters more\n"
+            "Weight Impact Comparison more heavily in overall_score.\n\n"
+        ),
+        "evidence": (
+            "FOCUS: Pay special attention to Evidence/Examples. The student should:\n"
+            "- Use concrete, specific examples or data\n"
+            "- Reference real-world scenarios\n"
+            "- Provide substantial evidence to support their response\n"
+            "Weight Evidence/Examples more heavily in overall_score.\n\n"
+        ),
+        "strategy": (
+            "FOCUS: Pay special attention to strategic choices. The student should:\n"
+            "- Prioritize the most important responses\n"
+            "- Allocate time/space appropriately\n"
+            "- Make clear strategic decisions about what to emphasize\n"
+            "Weight strategic thinking more heavily in overall_score.\n\n"
+        ),
+    }
+    
+    if weakness_type and weakness_type in weakness_focus:
+        system_prompt = base_criteria + weakness_focus[weakness_type]
+    else:
+        system_prompt = base_criteria
+    
+    system_prompt += (
         "Provide:\n"
-        "- overall_score: Average of the three metrics (0-10)\n"
+        "- overall_score: Weighted average emphasizing the focus area above (0-10)\n"
         "- refutation_quality_score, evidence_examples_score, impact_comparison_score (0-10 each)\n"
-        "- feedback: 2-3 sentences with ONE specific strength (with quote) and ONE concrete improvement (with example of what they could have said)\n\n"
+        "- feedback: 2-3 sentences with ONE specific strength (with quote) and ONE concrete improvement focused on the weakness area (with example of what they could have said)\n\n"
         "Return ONLY a JSON object with keys: overall_score, refutation_quality_score, evidence_examples_score, impact_comparison_score, feedback\n"
         "Do not include any additional text outside the JSON."
     )
@@ -830,8 +970,8 @@ def score_drill_rebuttal(motion: str, claim: str, claim_position: str, rebuttal:
     user_prompt = (
         f"Motion: {motion}\n\n"
         f"Claim ({claim_position}): {claim}\n\n"
-        f"Student's Rebuttal: {rebuttal}\n\n"
-        f"Evaluate this rebuttal."
+        f"Student's Response: {rebuttal}\n\n"
+        f"Evaluate this response."
     )
 
     try:
@@ -868,10 +1008,10 @@ def score_drill_rebuttal(motion: str, claim: str, claim_position: str, rebuttal:
 
 @app.post("/v1/drills/rebuttal/start", response_model=DrillClaimResponse)
 def start_rebuttal_drill(body: DrillStartRequest):
-    """Start a rebuttal drill - generates first claim for user to rebut."""
+    """Start a drill - generates first claim for user to respond to, tailored to weakness type."""
     # Generate claim on the opposite side of the user's position
     claim_position = "against" if body.user_position == "for" else "for"
-    claim = generate_drill_claim(body.motion, claim_position)
+    claim = generate_drill_claim(body.motion, claim_position, body.weakness_type)
 
     return DrillClaimResponse(
         claim=claim,
@@ -882,16 +1022,17 @@ def start_rebuttal_drill(body: DrillStartRequest):
 @app.post("/v1/drills/rebuttal/submit", response_model=DrillRebuttalScore)
 def submit_rebuttal_drill(body: DrillRebuttalSubmit):
     """Submit a rebuttal and get scored + next claim."""
-    # Score the rebuttal
+    # Score the rebuttal (with weakness_type if provided)
     score_result = score_drill_rebuttal(
         body.motion,
         body.claim,
         body.claim_position,
-        body.rebuttal
+        body.rebuttal,
+        body.weakness_type
     )
 
-    # Generate next claim (same position as before - user keeps rebutting claims from opposite side)
-    next_claim = generate_drill_claim(body.motion, body.claim_position)
+    # Generate next claim (same position as before - user keeps responding to claims from opposite side)
+    next_claim = generate_drill_claim(body.motion, body.claim_position, body.weakness_type)
 
     return DrillRebuttalScore(
         overall_score=score_result["overall_score"],

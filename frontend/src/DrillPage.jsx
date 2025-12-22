@@ -9,6 +9,7 @@ function DrillPage() {
 
   const motion = searchParams.get('motion') || 'Social media does more harm than good'
   const position = searchParams.get('position') || 'for'
+  const weaknessType = searchParams.get('weakness') || null
 
   const [currentClaim, setCurrentClaim] = useState(null)
   const [claimPosition, setClaimPosition] = useState(null)
@@ -26,13 +27,18 @@ function DrillPage() {
   const startDrill = async () => {
     setLoading(true)
     try {
+      const requestBody = {
+        motion: motion,
+        user_position: position,
+      }
+      if (weaknessType) {
+        requestBody.weakness_type = weaknessType
+      }
+      
       const response = await fetch(`${API_BASE}/v1/drills/rebuttal/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          motion: motion,
-          user_position: position,
-        }),
+        body: JSON.stringify(requestBody),
       })
 
       if (!response.ok) throw new Error('Failed to start drill')
@@ -56,15 +62,20 @@ function DrillPage() {
 
     setSubmitting(true)
     try {
+      const requestBody = {
+        motion: motion,
+        claim: currentClaim,
+        claim_position: claimPosition,
+        rebuttal: rebuttal.trim(),
+      }
+      if (weaknessType) {
+        requestBody.weakness_type = weaknessType
+      }
+      
       const response = await fetch(`${API_BASE}/v1/drills/rebuttal/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          motion: motion,
-          claim: currentClaim,
-          claim_position: claimPosition,
-          rebuttal: rebuttal.trim(),
-        }),
+        body: JSON.stringify(requestBody),
       })
 
       if (!response.ok) throw new Error('Failed to submit rebuttal')
@@ -118,11 +129,11 @@ function DrillPage() {
 
       <div className="drill-container">
         <div className="drill-header">
-          <h1>Rebuttal Drill</h1>
-          <p className="drill-subtitle">Practice refuting claims on: <strong>{motion}</strong></p>
+          <h1>{weaknessType ? `${weaknessType.charAt(0).toUpperCase() + weaknessType.slice(1)} Drill` : 'Rebuttal Drill'}</h1>
+          <p className="drill-subtitle">Practice {weaknessType ? weaknessType : 'refuting claims'} on: <strong>{motion}</strong></p>
           <p className="drill-info">
             You argued <strong>{position.toUpperCase()}</strong> •
-            Rebut claims from the <strong>{claimPosition?.toUpperCase()}</strong> side •
+            {weaknessType ? `Focus: ${weaknessType}` : `Rebut claims from the ${claimPosition?.toUpperCase()} side`} •
             Attempts: {attemptCount}
           </p>
         </div>
@@ -157,7 +168,7 @@ function DrillPage() {
         )}
 
         <div className="drill-claim-box">
-          <h3>Claim to Rebut</h3>
+          <h3>Claim to Respond To</h3>
           <div className="claim-content">
             <span className="claim-position-tag">{claimPosition?.toUpperCase()}</span>
             <p>{currentClaim}</p>
@@ -165,12 +176,24 @@ function DrillPage() {
         </div>
 
         <div className="drill-input-section">
-          <h3>Your Rebuttal</h3>
+          <h3>Your Response</h3>
           <textarea
             className="drill-textarea"
             value={rebuttal}
             onChange={(e) => setRebuttal(e.target.value)}
-            placeholder="Write your rebuttal here... Focus on: (1) Negating/mitigating the claim, (2) Using evidence/examples, (3) Comparing impacts"
+            placeholder={
+              weaknessType === 'rebuttal' 
+                ? "Write your rebuttal here... Focus on: (1) Negating/mitigating the claim, (2) Identifying flaws in logic, (3) Challenging assumptions"
+                : weaknessType === 'structure'
+                ? "Write your response here... Focus on: (1) Clear signposting and organization, (2) Logical flow, (3) Explicit links between ideas"
+                : weaknessType === 'weighing'
+                ? "Write your response here... Focus on: (1) Comparing probability, magnitude, and timeframe, (2) Making clear comparative statements, (3) Explaining why your point matters more"
+                : weaknessType === 'evidence'
+                ? "Write your response here... Focus on: (1) Using concrete, specific examples, (2) Referencing real-world scenarios, (3) Providing substantial evidence"
+                : weaknessType === 'strategy'
+                ? "Write your response here... Focus on: (1) Prioritizing the most important points, (2) Allocating space appropriately, (3) Making clear strategic decisions"
+                : "Write your rebuttal here... Focus on: (1) Negating/mitigating the claim, (2) Using evidence/examples, (3) Comparing impacts"
+            }
             rows={8}
             disabled={submitting}
           />
@@ -184,11 +207,45 @@ function DrillPage() {
         </div>
 
         <div className="drill-tips">
-          <h4>Tips for Strong Rebuttals</h4>
+          <h4>Tips for {weaknessType ? `Strong ${weaknessType.charAt(0).toUpperCase() + weaknessType.slice(1)}` : 'Strong Rebuttals'}</h4>
           <ul>
-            <li><strong>Negate first:</strong> Show why the claim isn't true or doesn't work</li>
-            <li><strong>Use examples:</strong> Counter with specific real-world evidence</li>
-            <li><strong>Weigh impacts:</strong> Explain why your refutation matters more</li>
+            {weaknessType === 'rebuttal' ? (
+              <>
+                <li><strong>Negate first:</strong> Show why the claim isn't true or doesn't work</li>
+                <li><strong>Identify flaws:</strong> Point out gaps in logic or assumptions</li>
+                <li><strong>Challenge directly:</strong> Address the core mechanism of the claim</li>
+              </>
+            ) : weaknessType === 'structure' ? (
+              <>
+                <li><strong>Signpost clearly:</strong> Use labels like "First...", "Second...", "In conclusion..."</li>
+                <li><strong>Logical flow:</strong> Make explicit connections between ideas</li>
+                <li><strong>Organize thoughts:</strong> Group related points together</li>
+              </>
+            ) : weaknessType === 'weighing' ? (
+              <>
+                <li><strong>Compare explicitly:</strong> Use phrases like "This outweighs because..."</li>
+                <li><strong>Address probability, magnitude, timeframe:</strong> Cover all three dimensions</li>
+                <li><strong>Make it comparative:</strong> Show why your point matters MORE</li>
+              </>
+            ) : weaknessType === 'evidence' ? (
+              <>
+                <li><strong>Be specific:</strong> Use concrete examples, not vague references</li>
+                <li><strong>Real-world scenarios:</strong> Reference things people recognize</li>
+                <li><strong>Substantial support:</strong> Provide enough evidence to make your point</li>
+              </>
+            ) : weaknessType === 'strategy' ? (
+              <>
+                <li><strong>Prioritize:</strong> Focus on the most important responses first</li>
+                <li><strong>Allocate wisely:</strong> Spend more time on stronger points</li>
+                <li><strong>Make choices:</strong> Decide what to emphasize and what to skip</li>
+              </>
+            ) : (
+              <>
+                <li><strong>Negate first:</strong> Show why the claim isn't true or doesn't work</li>
+                <li><strong>Use examples:</strong> Counter with specific real-world evidence</li>
+                <li><strong>Weigh impacts:</strong> Explain why your refutation matters more</li>
+              </>
+            )}
           </ul>
         </div>
       </div>

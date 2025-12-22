@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { Link } from 'react-router-dom'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -374,6 +375,11 @@ function App() {
   if (showLanding) {
     return (
       <div className="app landing-mode">
+        <nav className="landing-nav">
+          <Link to="/drills" className="nav-link">
+            Practice Drills
+          </Link>
+        </nav>
         <div className="landing-container">
           <div className="landing-content">
             <div className="landing-hero">
@@ -385,20 +391,28 @@ function App() {
                 Hone your debating skills with an intelligent AI opponent powered by a proprietary model 
                 trained on thousands of hours of debates and speeches from the world's best.
               </p>
-              <button 
-                className="cta-button"
-                onClick={() => setShowLanding(false)}
-              >
-                Try it out
-                <span className="cta-arrow">→</span>
-              </button>
+              <div className="landing-actions">
+                <button 
+                  className="cta-button"
+                  onClick={() => setShowLanding(false)}
+                >
+                  Start Debate
+                  <span className="cta-arrow">→</span>
+                </button>
+                <Link 
+                  to="/drills"
+                  className="cta-button cta-button-secondary"
+                >
+                  Practice Drills
+                </Link>
+              </div>
             </div>
 
             <div className="landing-features">
               <div className="feature-card">
-                <div className="feature-icon">🤖</div>
-                <h3>AI Opponent</h3>
-                <p>Debate against an advanced AI trained on thousands of hours of world-class debates and speeches.</p>
+                <div className="feature-icon">🎯</div>
+                <h3>Targeted Practice</h3>
+                <p>Focus on specific skills with weakness-based drills for rebuttal, structure, weighing, evidence, and strategy.</p>
               </div>
               <div className="feature-card">
                 <div className="feature-icon">🎓</div>
@@ -406,9 +420,9 @@ function App() {
                 <p>Developed by international debaters from the Yale Debate Association</p>
               </div>
               <div className="feature-card">
-                <div className="feature-icon">📊</div>
-                <h3>Detailed Scoring</h3>
-                <p>Get comprehensive feedback on clarity, structure, engagement, and strategic balance after each debate.</p>
+                <div className="feature-icon">⚡</div>
+                <h3>Instant Feedback</h3>
+                <p>Receive real-time scoring and detailed feedback to improve your debate skills with every practice session.</p>
               </div>
             </div>
           </div>
@@ -675,17 +689,17 @@ function App() {
                   <h4>Judge Feedback</h4>
                   <p>{score.feedback || 'No overall feedback available.'}</p>
 
-                  {/* Show drill recommendation if engagement score is low */}
-                  {score.metrics?.engagement != null && score.metrics.engagement < 6 && (
+                  {/* Show drill recommendation based on identified weakness */}
+                  {score.weakness_type && (
                     <div className="drill-recommendation">
                       <p className="drill-rec-text">
-                        💡 Your engagement score could use some work. Practice with focused drills!
+                        💡 Focus on improving your <strong>{score.weakness_type}</strong> skills with a targeted drill!
                       </p>
                       <a
-                        href={`/drill-rebuttal?motion=${encodeURIComponent(topic)}&position=${position}`}
+                        href={`/drill-rebuttal?motion=${encodeURIComponent(topic)}&position=${position}&weakness=${encodeURIComponent(score.weakness_type)}`}
                         className="btn-drill"
                       >
-                        Practice Rebuttal Skills →
+                        Practice {score.weakness_type.charAt(0).toUpperCase() + score.weakness_type.slice(1)} Skills →
                       </a>
                     </div>
                   )}
