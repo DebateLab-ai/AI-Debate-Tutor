@@ -829,11 +829,17 @@ def generate_drill_claim(
     # Base prompt for all drill types
     base_instructions = (
         "You are a debate argument generator. Your job is to generate a single, strong claim "
-        "that a debater might make in a debate. The claim should be:\n"
-        "- One clear argument (2-3 sentences max)\n"
-        "- Include a specific mechanism or reasoning\n"
-        "- Mention a concrete example or scenario\n"
+        "that a debater might make in a debate.\n\n"
+        "CRITICAL: Focus on LOGICAL FLOW, not examples. Think of this like a mathematical proof.\n\n"
+        "The claim should:\n"
+        "- Be one clear argument (2-3 sentences max)\n"
+        "- Explain the causal chain: if X, then Y happens BECAUSE Z (show the logical mechanism)\n"
+        "- Provide clear reasoning for WHY the claim is true, not just WHAT happens\n"
+        "- Build logical connections step-by-step (e.g., 'If schools are overcrowded, class sizes increase, "
+        "which means teachers have less time per student, therefore learning outcomes decline')\n"
         "- Be realistic and arguable (not obviously true/false)\n\n"
+        "Do NOT just cite examples. Do NOT say 'For example, in Country X...'. "
+        "Instead, explain the logical reason WHY something would occur.\n\n"
         "Do NOT include labels like 'Claim:', just output the argument directly."
     )
     
