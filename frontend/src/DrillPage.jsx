@@ -132,7 +132,13 @@ function DrillPage() {
       setClaimPosition(data.claim_position)
     } catch (error) {
       console.error('Error starting drill:', error)
-      alert('Failed to start drill. Please try again.')
+      if (error.message && (error.message.includes('fetch') || error.message.includes('network') || error.message.includes('Failed to fetch'))) {
+        alert('Unable to connect. Please check your internet connection and try again.')
+      } else if (error.message && error.message.includes('timed out')) {
+        alert('Request took too long. Please try again.')
+      } else {
+        alert('Something went wrong. Please try again.')
+      }
     } finally {
       setLoading(false)
     }
@@ -168,7 +174,7 @@ function DrillPage() {
       }, 60000) // 60 second timeout for scoring
 
       if (!response.ok) {
-        let errorMessage = 'Failed to submit rebuttal. Please try again.'
+        let errorMessage = 'Something went wrong. Please try again.'
         try {
           const errorData = await response.json()
           errorMessage = errorData.detail || errorData.error || errorMessage
@@ -203,7 +209,13 @@ function DrillPage() {
     } catch (error) {
       console.error('Error submitting rebuttal:', error)
       // NEVER expose error.message - could contain prompts during network failures
-      alert('Failed to submit rebuttal. Please try again.')
+      if (error.message && (error.message.includes('fetch') || error.message.includes('network') || error.message.includes('Failed to fetch'))) {
+        alert('Unable to connect. Please check your internet connection and try again.')
+      } else if (error.message && error.message.includes('timed out')) {
+        alert('Request took too long. Please try again.')
+      } else {
+        alert('Something went wrong. Please try again.')
+      }
     } finally {
       setSubmitting(false)
     }

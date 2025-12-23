@@ -390,7 +390,7 @@ Round {debate.current_round} of {debate.num_rounds}
 
 They just said: "{last_user_msg[:200]}{'...' if len(last_user_msg) > 200 else ''}"
 
-Refute their argument directly (max 2 paragraphs). Don't acknowledge or agree with anything they said—attack their reasoning, challenge their examples, explain why their logic fails, and point out flaws. Be direct and confrontational. Quote specific parts of what they said and explain why those points are wrong."""
+Respond (max 2 paragraphs). First, refute their argument directly—attack their reasoning, challenge their examples, explain why their logic fails, and point out flaws. Then, make your own points to support your position. Be direct and confrontational. Don't acknowledge or agree with anything they said. Quote specific parts of what they said and explain why those points are wrong, then build your own case."""
         else:
             prompt_now = f"""Motion: {topic_context}
 Current round: {debate.current_round} of {debate.num_rounds}

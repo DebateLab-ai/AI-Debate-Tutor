@@ -18,7 +18,7 @@ const fetchWithTimeout = async (url, options = {}, timeoutMs = 60000) => {
   } catch (error) {
     clearTimeout(timeoutId)
     if (error.name === 'AbortError') {
-      throw new Error('Request timed out. Please try again.')
+      throw new Error('Request timed out')
     }
     throw error
   }
@@ -126,7 +126,11 @@ function App() {
     } catch (error) {
       console.error('Error fetching score:', error)
       // Never expose raw error messages to users
-      setScoreError("Unable to load score")
+      if (error.message && error.message.includes('Failed to fetch')) {
+        setScoreError("Unable to load score - check your connection")
+      } else {
+        setScoreError("Unable to load score")
+      }
       return null
     } finally {
       setScoring(false)
@@ -237,7 +241,7 @@ function App() {
       }, 30000) // 30 second timeout
 
       if (!response.ok) {
-        let errorMessage = 'Failed to start debate. Please try again.'
+        let errorMessage = 'Something went wrong. Please try again.'
         try {
           const errorData = await response.json()
           errorMessage = errorData.detail || errorData.error || errorMessage
@@ -269,7 +273,14 @@ function App() {
       }
     } catch (error) {
       console.error('Error starting debate:', error)
-      alert('Failed to start debate. Please try again.')
+      // Check if it's a network/connection error or timeout
+      if (error.message && error.message.includes('timed out')) {
+        alert('The request took too long. Please check your connection and try again.')
+      } else if (error.message && error.message.includes('Failed to fetch')) {
+        alert('Unable to connect. Please check your internet connection and try again.')
+      } else {
+        alert('Something went wrong. Please try again.')
+      }
     } finally {
       setLoading(false)
     }
@@ -292,7 +303,13 @@ function App() {
       return data.text
     } catch (error) {
       console.error('Transcription error:', error)
-      alert('Unable to transcribe audio. Please try again.')
+      if (error.message && error.message.includes('timed out')) {
+        alert('Transcription took too long. Please try again.')
+      } else if (error.message && error.message.includes('Failed to fetch')) {
+        alert('Unable to connect. Please check your internet connection and try again.')
+      } else {
+        alert('Unable to transcribe audio. Please try again.')
+      }
       return null
     }
   }
@@ -371,7 +388,7 @@ function App() {
       }, 30000) // 30 second timeout
 
       if (!response.ok) {
-        let errorMessage = 'Failed to submit argument. Please try again.'
+        let errorMessage = 'Something went wrong. Please try again.'
         try {
           const errorData = await response.json()
           errorMessage = errorData.detail || errorData.error || errorMessage
@@ -382,7 +399,7 @@ function App() {
               const parsed = JSON.parse(errorText)
               errorMessage = parsed.detail || parsed.error || errorMessage
             } catch {
-              // If it's not JSON, use a generic message
+              // If it's not JSON, use generic message
             }
           }
         }
@@ -429,7 +446,11 @@ function App() {
       }
     } catch (error) {
       console.error('Error submitting argument:', error)
-      alert('Failed to submit argument. Please try again.')
+      if (error.message && (error.message.includes('fetch') || error.message.includes('network') || error.message.includes('Failed to fetch'))) {
+        alert('Unable to connect. Please check your internet connection and try again.')
+      } else {
+        alert('Something went wrong. Please try again.')
+      }
     } finally {
       setSubmitting(false)
     }
@@ -482,7 +503,13 @@ function App() {
     } catch (error) {
       console.error('Error generating AI turn:', error)
       // NEVER expose error.message - could contain prompts during network failures
-      alert('AI response temporarily unavailable. Please try again.')
+      if (error.message && error.message.includes('timed out')) {
+        alert('The AI response took too long. Please try again.')
+      } else if (error.message && error.message.includes('Failed to fetch')) {
+        alert('Unable to connect. Please check your internet connection and try again.')
+      } else {
+        alert('Unable to generate AI response. Please try again.')
+      }
     } finally {
       setLoading(false)
     }
@@ -504,7 +531,11 @@ function App() {
       await fetchScore(debateId, true)
     } catch (error) {
       console.error('Error finishing debate:', error)
-      alert('Failed to finish debate. Please try again.')
+      if (error.message && (error.message.includes('fetch') || error.message.includes('network') || error.message.includes('Failed to fetch'))) {
+        alert('Unable to connect. Please check your internet connection and try again.')
+      } else {
+        alert('Something went wrong. Please try again.')
+      }
     } finally {
       setLoading(false)
     }
@@ -546,11 +577,6 @@ function App() {
   if (showLanding) {
     return (
       <div className="app landing-mode">
-        <nav className="landing-nav">
-          <Link to="/drills" className="nav-link">
-            Practice Drills
-          </Link>
-        </nav>
         <div className="landing-container">
           <div className="landing-content">
             <div className="landing-hero">
