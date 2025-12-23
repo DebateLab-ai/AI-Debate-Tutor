@@ -303,7 +303,7 @@ function DrillPage() {
                 : "Write your rebuttal here... Focus on: (1) Negating/mitigating the claim, (2) Using evidence/examples, (3) Comparing impacts"
             }
             rows={8}
-            maxLength={5000}
+            maxLength={10000}
             disabled={submitting}
           />
           <button

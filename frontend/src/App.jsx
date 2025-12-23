@@ -757,7 +757,7 @@ function App() {
                 placeholder="Type your argument here..."
                 className="argument-input"
                 rows={4}
-                maxLength={5000}
+                maxLength={10000}
                 onKeyPress={(e) => {
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                     submitArgument()

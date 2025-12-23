@@ -45,7 +45,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         # Map Pydantic errors to user-friendly messages
         if "max_length" in msg:
             if "content" in field_path.lower() or "rebuttal" in field_path.lower():
-                error_messages.append("Your response is too long. Maximum length is 5,000 characters.")
+                error_messages.append("Your response is too long. Maximum length is 10,000 characters.")
             elif "motion" in field_path.lower() or "title" in field_path.lower():
                 error_messages.append("Topic is too long. Maximum length is 500 characters.")
             else:
@@ -155,7 +155,7 @@ class DebateWithMessages(DebateOut):
 
 class TurnIn(BaseModel):
     speaker: Speaker
-    content: str = Field(min_length=1, max_length=5000)  # Max 5,000 characters per argument
+    content: str = Field(min_length=1, max_length=10000)  # Max 10,000 characters per argument
 
 class TurnOut(BaseModel):
     round_no: int
@@ -236,7 +236,7 @@ class DrillRebuttalSubmit(BaseModel):
     motion: str = Field(min_length=1, max_length=500)
     claim: str = Field(min_length=1, max_length=2000)
     claim_position: Literal["for", "against"]
-    rebuttal: str = Field(min_length=1, max_length=5000)  # Max 5,000 characters per rebuttal
+    rebuttal: str = Field(min_length=1, max_length=10000)  # Max 10,000 characters per rebuttal
     weakness_type: Optional[Literal["rebuttal", "structure", "weighing", "evidence", "strategy"]] = None
 
 class DrillRebuttalMetrics(BaseModel):
