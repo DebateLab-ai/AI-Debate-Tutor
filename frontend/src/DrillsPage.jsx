@@ -10,26 +10,21 @@ const DRILL_TYPES = [
 ]
 
 const SAMPLE_TOPICS = [
-  'This House believes social media does more harm than good',
-  'This House would ban private schools',
-  'This House supports universal basic income',
-  'This House believes AI should be regulated',
-  'This House would legalize all drugs',
-  'This House supports open borders',
-  'This House would abolish the death penalty',
-  'This House believes climate change is the greatest threat to humanity',
-  'This House would make voting mandatory',
-  'This House supports the right to die',
-  'This House would ban animal testing',
-  'This House believes in free college education',
-  'This House would implement a four-day work week',
-  'This House supports the legalization of prostitution',
-  'This House would ban all forms of gambling',
-  'This House believes in strict gun control',
-  'This House would raise the minimum wage significantly',
-  'This House supports the abolition of prisons',
-  'This House believes in the right to privacy over security',
-  'This House would implement a carbon tax',
+  'This House, as a college student, would pursue their passions over selling out',
+  'This House believes the US dollar\'s global dominance is harmful',
+  'This House believes success is primarily determined by luck rather than effort',
+  'This House would restrict free speech to combat right-wing populism',
+  'This House opposes leftist bias in universities',
+  'This House prefers economic sanctions to military action',
+  'This House supports the development of AI in creative industries',
+  'This House believes democracy is a human right',
+  'This House prefers flawed democracies to technocratic governance',
+  'This House would nationalize all land ownership',
+  'This House believes that a nationalized pharmaceutical industry is preferable to a private one',
+  'This House supports Marxist economic principles',
+  'This House believes that government regulation stifles innovation',
+  'This House would prioritize individual liberty over collective security',
+  'This House believes that markets should determine resource allocation',
 ]
 
 function DrillsPage() {
@@ -41,6 +36,8 @@ function DrillsPage() {
     return SAMPLE_TOPICS[Math.floor(Math.random() * SAMPLE_TOPICS.length)]
   })
   const [position, setPosition] = useState('for')
+  const [timerEnabled, setTimerEnabled] = useState(false)
+  const [timerMinutes, setTimerMinutes] = useState(3)
 
   const handleStartDrill = () => {
     const topic = customTopic.trim() || selectedTopic
@@ -53,7 +50,11 @@ function DrillsPage() {
       return
     }
 
-    navigate(`/drill-rebuttal?motion=${encodeURIComponent(topic)}&position=${position}&weakness=${selectedType}`)
+    let url = `/drill-rebuttal?motion=${encodeURIComponent(topic)}&position=${position}&weakness=${selectedType}`
+    if (timerEnabled) {
+      url += `&timer=${timerMinutes}`
+    }
+    navigate(url)
   }
 
   return (
@@ -145,6 +146,35 @@ function DrillsPage() {
             <p className="position-note">
               You'll practice responding to claims from the opposite side
             </p>
+          </div>
+
+          {/* Timer Settings */}
+          <div className="drills-section">
+            <h2>Timer (Optional)</h2>
+            <div className="form-group">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={timerEnabled}
+                  onChange={(e) => setTimerEnabled(e.target.checked)}
+                />
+                Enable Timer (creates time pressure)
+              </label>
+              {timerEnabled && (
+                <select
+                  className="input-large"
+                  value={timerMinutes}
+                  onChange={(e) => setTimerMinutes(parseInt(e.target.value))}
+                  style={{ marginTop: '12px' }}
+                >
+                  <option value={1}>1 minute per response</option>
+                  <option value={2}>2 minutes per response</option>
+                  <option value={3}>3 minutes per response</option>
+                  <option value={5}>5 minutes per response</option>
+                  <option value={7}>7 minutes per response</option>
+                </select>
+              )}
+            </div>
           </div>
 
           {/* Start Button */}

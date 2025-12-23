@@ -3,6 +3,24 @@ import { Link } from 'react-router-dom'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
+const DEBATE_TOPICS = [
+  'This House, as a college student, would pursue their passions over selling out',
+  'This House believes the US dollar\'s global dominance is harmful',
+  'This House believes success is primarily determined by luck rather than effort',
+  'This House would restrict free speech to combat right-wing populism',
+  'This House opposes leftist bias in universities',
+  'This House prefers economic sanctions to military action',
+  'This House supports the development of AI in creative industries',
+  'This House believes democracy is a human right',
+  'This House prefers flawed democracies to technocratic governance',
+  'This House would nationalize all land ownership',
+  'This House believes that a nationalized pharmaceutical industry is preferable to a private one',
+  'This House supports Marxist economic principles',
+  'This House believes that government regulation stifles innovation',
+  'This House would prioritize individual liberty over collective security',
+  'This House believes that markets should determine resource allocation',
+]
+
 function App() {
   const [debateId, setDebateId] = useState(null)
   const [debate, setDebate] = useState(null)
@@ -12,15 +30,24 @@ function App() {
   const [score, setScore] = useState(null)
   const [scoring, setScoring] = useState(false)
   const [scoreError, setScoreError] = useState(null)
-  
+
   // Landing/Setup state
   const [showLanding, setShowLanding] = useState(true)
-  const [topic, setTopic] = useState('Social media does more harm than good')
+  const [topic, setTopic] = useState(() => {
+    // Randomly select a topic on initial render
+    return DEBATE_TOPICS[Math.floor(Math.random() * DEBATE_TOPICS.length)]
+  })
   const [position, setPosition] = useState('for') // 'for' or 'against'
   const [numRounds, setNumRounds] = useState(2)
   const [mode, setMode] = useState('casual') // 'parliamentary' or 'casual'
   const [setupComplete, setSetupComplete] = useState(false)
-  
+
+  // Timer state
+  const [timerEnabled, setTimerEnabled] = useState(false)
+  const [timerMinutes, setTimerMinutes] = useState(12)
+  const [timeRemaining, setTimeRemaining] = useState(null) // in seconds
+  const timerIntervalRef = useRef(null)
+
   // Input state
   const [argument, setArgument] = useState('')
   const [audioFile, setAudioFile] = useState(null)
@@ -72,6 +99,46 @@ function App() {
       fetchDebate()
     }
   }, [debateId])
+
+  // Timer countdown effect
+  useEffect(() => {
+    if (timerEnabled && debate?.next_speaker === 'user' && debate?.status === 'active') {
+      // Start timer for user's turn
+      if (timeRemaining === null) {
+        setTimeRemaining(timerMinutes * 60)
+      }
+
+      timerIntervalRef.current = setInterval(() => {
+        setTimeRemaining(prev => {
+          if (prev === null) return null
+          if (prev <= 1) {
+            clearInterval(timerIntervalRef.current)
+            return 0
+          }
+          return prev - 1
+        })
+      }, 1000)
+
+      return () => {
+        if (timerIntervalRef.current) {
+          clearInterval(timerIntervalRef.current)
+        }
+      }
+    } else {
+      // Not user's turn or timer disabled - clear timer
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current)
+      }
+      setTimeRemaining(null)
+    }
+  }, [timerEnabled, debate?.next_speaker, debate?.status, timeRemaining === null])
+
+  // Auto-submit when timer expires
+  useEffect(() => {
+    if (timeRemaining === 0 && debate?.next_speaker === 'user' && !submitting) {
+      submitArgument(true)
+    }
+  }, [timeRemaining])
 
   const fetchDebate = async (targetId = debateId) => {
     if (!targetId) return null
@@ -204,8 +271,13 @@ function App() {
     }
   }
 
-  const submitArgument = async () => {
-    if (!debateId || !argument.trim()) {
+  const submitArgument = async (autoSubmit = false) => {
+    if (!debateId) {
+      if (!autoSubmit) alert('Please enter your argument')
+      return
+    }
+
+    if (!argument.trim() && !autoSubmit) {
       alert('Please enter your argument')
       return
     }
@@ -358,7 +430,8 @@ function App() {
     setTranscribing(false)
     setMediaRecorder(null)
     setMode('casual')
-    setTopic('Social media does more harm than good')
+    // Randomly select a new topic on reset
+    setTopic(DEBATE_TOPICS[Math.floor(Math.random() * DEBATE_TOPICS.length)])
     setNumRounds(2)
   }
 
@@ -449,7 +522,7 @@ function App() {
                 type="text"
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
-                placeholder="e.g., Social media does more harm than good"
+                placeholder="e.g., This House opposes the continued use of international military aid"
                 className="input-large"
                 onKeyPress={(e) => e.key === 'Enter' && startDebate()}
               />
@@ -524,6 +597,33 @@ function App() {
                   </>
                 )}
               </select>
+            </div>
+
+            <div className="form-group">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={timerEnabled}
+                  onChange={(e) => setTimerEnabled(e.target.checked)}
+                  style={{ marginRight: '8px' }}
+                />
+                Enable Timer (creates time pressure)
+              </label>
+              {timerEnabled && (
+                <select
+                  value={timerMinutes}
+                  onChange={(e) => setTimerMinutes(parseInt(e.target.value))}
+                  className="input-large"
+                  style={{ marginTop: '10px' }}
+                >
+                  <option value={3}>3 minutes per speech</option>
+                  <option value={5}>5 minutes per speech</option>
+                  <option value={7}>7 minutes per speech</option>
+                  <option value={10}>10 minutes per speech</option>
+                  <option value={12}>12 minutes per speech</option>
+                  <option value={15}>15 minutes per speech</option>
+                </select>
+              )}
             </div>
 
             <button
@@ -612,6 +712,11 @@ function App() {
         {debate?.status === 'active' && debate?.next_speaker === 'user' && (
           <div className="input-container">
             <div className="input-wrapper">
+              {timerEnabled && timeRemaining !== null && (
+                <div className={`timer-display ${timeRemaining < 60 ? 'timer-warning' : ''}`}>
+                  ⏱️ Time Remaining: {Math.floor(timeRemaining / 60)}:{String(timeRemaining % 60).padStart(2, '0')}
+                </div>
+              )}
               <textarea
                 ref={inputRef}
                 value={argument}
