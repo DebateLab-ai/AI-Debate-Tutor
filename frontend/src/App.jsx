@@ -187,7 +187,26 @@ function App() {
         }),
       })
 
-      if (!response.ok) throw new Error('Failed to create debate')
+      if (!response.ok) {
+        let errorMessage = 'Failed to start debate. Please try again.'
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.detail || errorData.error || errorMessage
+        } catch {
+          const errorText = await response.text()
+          if (errorText) {
+            try {
+              const parsed = JSON.parse(errorText)
+              errorMessage = parsed.detail || parsed.error || errorMessage
+            } catch {
+              // If it's not JSON, use generic message
+            }
+          }
+        }
+        alert(errorMessage)
+        setLoading(false)
+        return
+      }
       const data = await response.json()
       setDebateId(data.id)
       setDebate(data)
@@ -294,8 +313,24 @@ function App() {
       })
 
       if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(errorText)
+        let errorMessage = 'Failed to submit argument. Please try again.'
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.detail || errorData.error || errorMessage
+        } catch {
+          const errorText = await response.text()
+          if (errorText) {
+            try {
+              const parsed = JSON.parse(errorText)
+              errorMessage = parsed.detail || parsed.error || errorMessage
+            } catch {
+              // If it's not JSON, use a generic message
+            }
+          }
+        }
+        alert(errorMessage)
+        setSubmitting(false)
+        return
       }
 
       const turnData = await response.json()
@@ -521,6 +556,7 @@ function App() {
                 onChange={(e) => setTopic(e.target.value)}
                 placeholder="e.g., This House opposes the continued use of international military aid"
                 className="input-large"
+                maxLength={500}
                 onKeyPress={(e) => e.key === 'Enter' && startDebate()}
               />
             </div>
@@ -721,6 +757,7 @@ function App() {
                 placeholder="Type your argument here..."
                 className="argument-input"
                 rows={4}
+                maxLength={5000}
                 onKeyPress={(e) => {
                   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                     submitArgument()

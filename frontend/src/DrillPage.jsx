@@ -121,7 +121,25 @@ function DrillPage() {
         body: JSON.stringify(requestBody),
       })
 
-      if (!response.ok) throw new Error('Failed to submit rebuttal')
+      if (!response.ok) {
+        let errorMessage = 'Failed to submit rebuttal. Please try again.'
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.detail || errorData.error || errorMessage
+        } catch {
+          const errorText = await response.text()
+          if (errorText) {
+            try {
+              const parsed = JSON.parse(errorText)
+              errorMessage = parsed.detail || parsed.error || errorMessage
+            } catch {
+              // If it's not JSON, use generic message
+            }
+          }
+        }
+        alert(errorMessage)
+        return
+      }
 
       const data = await response.json()
       setLastScore(data)
@@ -285,6 +303,7 @@ function DrillPage() {
                 : "Write your rebuttal here... Focus on: (1) Negating/mitigating the claim, (2) Using evidence/examples, (3) Comparing impacts"
             }
             rows={8}
+            maxLength={5000}
             disabled={submitting}
           />
           <button

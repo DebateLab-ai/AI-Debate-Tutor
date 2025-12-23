@@ -8,9 +8,11 @@ import json
 from uuid import uuid4, UUID
 from dotenv import load_dotenv
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi import UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 # Import RAG functionality
@@ -21,7 +23,49 @@ load_dotenv()
 Speaker = Literal["user", "assistant"]
 Status = Literal["active", "completed"]
 
-app = FastAPI(title="Debate MVP")
+app = FastAPI(
+    title="Debate MVP",
+    description="AI-powered debate practice platform",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
+
+# Custom error handler for validation errors - show user-friendly messages
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Return user-friendly validation error messages instead of raw Pydantic errors"""
+    errors = exc.errors()
+    error_messages = []
+    for error in errors:
+        field_path = ".".join(str(loc) for loc in error["loc"] if loc != "body")
+        msg = error["msg"]
+        error_type = error.get("type", "")  # Get error type at the start
+        
+        # Map Pydantic errors to user-friendly messages
+        if "max_length" in msg:
+            if "content" in field_path.lower() or "rebuttal" in field_path.lower():
+                error_messages.append("Your response is too long. Maximum length is 5,000 characters.")
+            elif "motion" in field_path.lower() or "title" in field_path.lower():
+                error_messages.append("Topic is too long. Maximum length is 500 characters.")
+            else:
+                error_messages.append(f"{field_path}: Value exceeds maximum length")
+        elif "min_length" in msg:
+            error_messages.append("This field cannot be empty.")
+        elif "value_error" in error_type or "string_type" in error_type:
+            error_messages.append(f"Invalid value for {field_path}")
+        else:
+            # Generic fallback
+            error_messages.append(f"{field_path}: {msg}")
+    
+    # Return first error message (most relevant)
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "detail": error_messages[0] if error_messages else "Validation failed. Please check your input.",
+            "error": error_messages[0] if error_messages else "Invalid input"
+        }
+    )
 
 # CORS configuration - allow specific origins in production
 CORS_ORIGINS_ENV = os.getenv("CORS_ORIGINS", "*")
@@ -82,7 +126,7 @@ SCORES: Dict[UUID, "ScoreBreakdown"] = {}
 
 # ---------- Schemas (I/O) ----------
 class DebateCreate(BaseModel):
-    title: Optional[str] = None
+    title: Optional[str] = Field(default=None, max_length=500)  # Max 500 characters for topic
     num_rounds: int = Field(ge=1, le=10)  # Max 10 for casual mode, validated in endpoint
     starter: Speaker
     mode: Literal["casual", "parliamentary"] = "casual"
@@ -111,7 +155,7 @@ class DebateWithMessages(DebateOut):
 
 class TurnIn(BaseModel):
     speaker: Speaker
-    content: str = Field(min_length=1)
+    content: str = Field(min_length=1, max_length=5000)  # Max 5,000 characters per argument
 
 class TurnOut(BaseModel):
     round_no: int
@@ -180,7 +224,7 @@ class CorpusStatsResponse(BaseModel):
 
 # ---------- Drill Schemas ----------
 class DrillStartRequest(BaseModel):
-    motion: str = Field(min_length=1)
+    motion: str = Field(min_length=1, max_length=500)  # Max 500 characters for motion
     user_position: Literal["for", "against"]  # The position the user took in the debate
     weakness_type: Optional[Literal["rebuttal", "structure", "weighing", "evidence", "strategy"]] = None  # Type of drill to focus on
 
@@ -189,10 +233,10 @@ class DrillClaimResponse(BaseModel):
     claim_position: Literal["for", "against"]  # The position of the claim (opposite of user)
 
 class DrillRebuttalSubmit(BaseModel):
-    motion: str = Field(min_length=1)
-    claim: str = Field(min_length=1)
+    motion: str = Field(min_length=1, max_length=500)
+    claim: str = Field(min_length=1, max_length=2000)
     claim_position: Literal["for", "against"]
-    rebuttal: str = Field(min_length=1)
+    rebuttal: str = Field(min_length=1, max_length=5000)  # Max 5,000 characters per rebuttal
     weakness_type: Optional[Literal["rebuttal", "structure", "weighing", "evidence", "strategy"]] = None
 
 class DrillRebuttalMetrics(BaseModel):

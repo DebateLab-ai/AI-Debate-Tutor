@@ -119,6 +119,7 @@ function DrillsPage() {
                   placeholder="Enter a debate motion..."
                   value={customTopic}
                   onChange={(e) => setCustomTopic(e.target.value)}
+                  maxLength={500}
                 />
               </div>
             </div>
