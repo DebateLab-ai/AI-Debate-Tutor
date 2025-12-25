@@ -355,50 +355,63 @@ OPPONENT'S SPEECH:
 
 {context_block}
 
-NON-NEGOTIABLE REQUIREMENTS:
-1. SUBSTANCE OVER LENGTH: Match their depth and detail, not word count. If they wrote 3 developed points, you write 3+ developed points. Quality fills space naturally.
-2. ACCURACY: Only address arguments they ACTUALLY made. Never invent arguments to rebut.
-3. LOGICAL RIGOR: Every claim needs a causal chain. Show A→B→C explicitly. No logical leaps.
-4. ROADMAP: Start with a brief preview of what you'll do. E.g., "Here's what I'll do: first, I'll rebut their X argument. Second, I'll make our case on Y."
+NON-NEGOTIABLES:
+1. MATCH DEPTH: If they made 3 developed points, you make 3-4. Quality fills space naturally.
+2. ACCURACY: Only address what they ACTUALLY said. Never invent arguments.
+3. STRATEGIC ORGANIZATION: Group rebuttals by theme, not rigid formula. Adapt structure to content.
 
-SPEECH STRUCTURE:
+REFERENCE STYLE (emulate this structure - from world-class rebuttal speech):
 
-ROADMAP (1-2 sentences):
-- Flag what you'll do: "Here's my speech. First, I'll address their [X] argument. Second, I'll build our case on [Y]."
-- Keep it brief and clear
+Opening roadmap: "i'm going to talk about three things in this speech firstly [theme 1] second [theme 2] and thirdly [theme 3]"
 
-REBUTTAL SECTION (use for each of their arguments):
+Within each theme:
+- Sub-structure with numbers: "under this theme i want to do three things one... second... third..."
+- Clear clash: "they say X... no thank you... here's what's actually true: [step-by-step logic]"
+- Explicit weighing: "the comparative then is this...", "on balance...", "that is why we're better on our side"
+- Impact crystallization: "the impact of this is...", "that is a structural reason why..."
 
-First, NEGATE their mechanism (when possible):
-- State their claim: "They argue X causes Y..."
-- Identify the flaw: "This breaks down because [show specific gap in causal chain]..."
-- Rebuild the logic: "In reality, X leads to Z, not Y, because [step-by-step]..."
-- Evidence use: Cite concrete examples, but clarify limits: "Example X shows Y, but doesn't prove the broader claim because..."
-- Your logic must carry the argument, not just the example
+Mechanistic depth:
+- "firstly... here we told you two things one that... second the fact that..."
+- "three sets of responses number one... second... thirdly though and this is crucial..."
+- Build causal chains: "given that X... that means Y... therefore Z"
 
-Then, WEIGH (always required):
-- "Even granting their point, our side wins because..."
-- Compare on metrics: probability, magnitude, timeframe
-- Make comparison explicit: "Our impact is larger because... more probable because... matters more because..."
+Comparative framing (constant):
+- "on our side... on their side..."
+- "they try to co-opt our benefits by saying... no thank you... [explain why]"
+- "even if we concede X, we still win because..."
 
-SIGNPOSTING:
-- Label clearly: "First, their X argument. The flaw is... Even granting it, we win because..."
-- "Second, their Y argument. This breaks down because... Even if true, we still win because..."
-- Keep structure visible but natural - not robotic
+ACTUAL STRUCTURE (flexible, adapt to content):
 
-CONSTRUCTIVE (if space permits):
-- Add 1 new argument supporting your side
-- PREMISE → MECHANISM (show A→B→C step-by-step) → IMPACT
-- Keep it tight - rebuttals are your priority
+1. ROADMAP: "i'm going to talk about [number] things in this speech: first [theme], second [theme], third [theme]"
 
-STYLE REQUIREMENTS:
-- Only rebut what they said - no hallucinated arguments
-- Build arguments step-by-step with clear causal chains - no logical leaps
-- Examples illustrate but don't prove - logic proves
-- Match their level of development - if they wrote 3 detailed paragraphs, you write 3-4 detailed paragraphs
-- Every sentence must add substance
-- Sound like spoken debate, not written essay
-- Sharp but respectful
+2. THEMATIC REBUTTALS (group by big-picture themes, not point-by-point):
+   - For each theme: "firstly on [theme name]"
+   - Sub-structure: "under this i want to do three things: one... two... three..."
+   - Clear clash: "they say [their claim]... [response with step-by-step logic]"
+   - Mechanistic depth: "here's what's important to note [causal chain]"
+   - Weigh constantly: "the comparative then is this...", "on balance...", "that is why..."
+
+3. SIGNPOSTING (natural but clear):
+   - "firstly on...", "secondly then on...", "thirdly and finally..."
+   - "number one...", "second...", "thirdly though and this is crucial..."
+   - "before i move to the second theme, [quick weighing]"
+
+4. WEIGHING (throughout, not just at end):
+   - "the comparative then is this..."
+   - "on balance we are happier on our side"
+   - "that is a structural reason why they do not get to co-opt our benefits"
+   - "even if we concede X, we still win because Y"
+
+5. CONCLUSION: Brief wrap - "propositions choice banks our future on fleeting passions and we could not accept that"
+
+STYLE (emulate the corpus):
+- Strategic flexibility - structure adapts to win the round
+- Every sentence does work - no fluff
+- Clear causal chains: "given that X... that means Y... therefore Z"
+- Constant comparison: "on our side... on their side..."
+- Explicit impact: "that is why...", "this means...", "the impact of this..."
+- Natural but clear signposting - not robotic
+- Match their depth (crucial)
 """
 
 SPEECH_PROMPT_TMPL = """You are delivering a {format} {side} speech. Motion: {motion}
