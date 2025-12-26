@@ -297,9 +297,16 @@ def _append_message_and_advance(debate: Debate, speaker: Speaker, content: str) 
     return msg
 
 # --- Optional OpenAI client (used for /auto-turn now; Whisper soon) ---
+# Get API key from environment (works in both local .env and Railway env vars)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = None
+
+# Debug: Check all environment variables that start with OPENAI
+print(f"[OpenAI] Checking for API key...")
+print(f"[OpenAI] OPENAI_API_KEY exists: {bool(OPENAI_API_KEY)}")
 if OPENAI_API_KEY:
+    print(f"[OpenAI] API Key length: {len(OPENAI_API_KEY)}")
+    print(f"[OpenAI] API Key starts with: {OPENAI_API_KEY[:10]}...")
     try:
         from openai import OpenAI  # OpenAI Python SDK ≥ 1.0
         client = OpenAI(api_key=OPENAI_API_KEY)
@@ -307,8 +314,11 @@ if OPENAI_API_KEY:
     except Exception as e:
         client = None
         print(f"[OpenAI] Failed to initialize client: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
 else:
     print("[OpenAI] No API key found in environment variables")
+    print(f"[OpenAI] All env vars with 'OPENAI' in name: {[k for k in os.environ.keys() if 'OPENAI' in k.upper()]}")
 
 def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
     """
