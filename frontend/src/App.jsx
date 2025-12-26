@@ -54,7 +54,7 @@ function App() {
   const [scoreError, setScoreError] = useState(null)
 
   // Landing/Setup state
-  const [showLanding, setShowLanding] = useState(true)
+  const [showLanding, setShowLanding] = useState(false) // Don't show landing in debate route
   const [topic, setTopic] = useState('Social media does more harm than good')
   const [position, setPosition] = useState('for') // 'for' or 'against'
   const [numRounds, setNumRounds] = useState(2)
@@ -551,7 +551,6 @@ function App() {
     setDebate(null)
     setMessages([])
     setSetupComplete(false)
-    setShowLanding(false)
     setArgument('')
     setAudioFile(null)
     setScore(null)
@@ -573,68 +572,14 @@ function App() {
     return 'Needs Improvement'
   }
 
-  // Landing page
-  if (showLanding) {
-    return (
-      <div className="app landing-mode">
-        <div className="landing-container">
-          <div className="landing-content">
-            <div className="landing-hero">
-              <h1 className="landing-title">
-                <span className="title-main">DebateLab</span>
-                <span className="title-subtitle">AI-Powered Debate Practice</span>
-              </h1>
-              <p className="landing-description">
-                Hone your debating skills with an intelligent AI opponent powered by a proprietary model 
-                trained on hundreds of hours of debates and speeches from the world's best.
-              </p>
-              <div className="landing-actions">
-                <button 
-                  className="cta-button"
-                  onClick={() => setShowLanding(false)}
-                >
-                  Start Debate
-                  <span className="cta-arrow">→</span>
-                </button>
-                <Link 
-                  to="/drills"
-                  className="cta-button cta-button-secondary"
-                >
-                  Practice Drills
-                </Link>
-              </div>
-            </div>
-
-            <div className="landing-features">
-              <div className="feature-card">
-                <div className="feature-icon">🎯</div>
-                <h3>Targeted Practice</h3>
-                <p>Focus on specific skills with weakness-based drills for rebuttal, structure, weighing, evidence, and strategy.</p>
-              </div>
-              <div className="feature-card">
-                <div className="feature-icon">🎓</div>
-                <h3>Trained on the best</h3>
-                <p>Trained by members of the <strong>Yale Debate Association</strong> and former national team members. Trained on hundreds of hours of pro-level debate content.</p>
-              </div>
-              <div className="feature-card">
-                <div className="feature-icon">⚡</div>
-                <h3>Instant Feedback</h3>
-                <p>Receive real-time scoring and detailed feedback to improve your debate skills with every practice session.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
 
   // Setup screen
   if (!setupComplete) {
     return (
       <div className="app setup-mode">
-        <button className="return-to-landing" onClick={() => setShowLanding(true)} title="Return to home">
+        <Link to="/" className="return-to-landing" title="Return to home">
           ← Home
-        </button>
+        </Link>
         <div className="setup-container">
           <div className="setup-card">
             <h1>New Debate</h1>
@@ -651,6 +596,9 @@ function App() {
                 maxLength={500}
                 onKeyPress={(e) => e.key === 'Enter' && startDebate()}
               />
+              <small style={{ display: 'block', marginTop: '6px', color: '#666', fontSize: '0.875rem' }}>
+                💡 You can edit the sample topic above or type your own
+              </small>
             </div>
 
             <div className="form-group">
@@ -767,9 +715,9 @@ function App() {
   // Debate screen
   return (
     <div className="app debate-mode">
-      <button className="return-to-landing" onClick={() => { setShowLanding(true); resetDebate(); }} title="Return to home">
+      <Link to="/" className="return-to-landing" onClick={resetDebate} title="Return to home">
         ← Home
-      </button>
+      </Link>
       <header className="debate-header">
         {!isOnline && (
           <div style={{
