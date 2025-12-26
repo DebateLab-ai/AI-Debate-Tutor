@@ -759,7 +759,7 @@ def get_debate(debate_id: UUID):
         )
         for m in MESSAGES.get(debate_id, [])
     ]
-    return DebateWithMessages(**debate.model_dump(), messages=msgs)
+    return DebateWithMessages(**debate.dict(), messages=msgs)
 
 # ---------- 4) Auto-turn (assistant generates its move) ----------
 class AutoTurnOut(BaseModel):
