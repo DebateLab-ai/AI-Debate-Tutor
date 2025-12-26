@@ -19,11 +19,22 @@ from pydantic import BaseModel, Field
 from app.response import SimpleRAG, generate_debate_with_coach_loop, generate_rebuttal_speech
 
 # ---------- Types ----------
-# Load .env file from backend directory (parent of app directory)
+# Load .env file from backend directory (parent of app directory) for local development
+# In production (Railway), environment variables are set directly and take precedence
 env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
-load_dotenv(dotenv_path=env_path)
-print(f"[Config] Loading .env from: {env_path}")
-print(f"[Config] API Key loaded: {bool(os.getenv('OPENAI_API_KEY'))}")
+if os.path.exists(env_path):
+    load_dotenv(dotenv_path=env_path)
+    print(f"[Config] Loaded .env from: {env_path}")
+else:
+    # In production, environment variables are set directly (Railway, etc.)
+    load_dotenv()  # This will still check for .env in current directory, but env vars take precedence
+    print(f"[Config] Using environment variables (production mode)")
+
+# Check if API key is available (from .env file or environment variables)
+api_key_loaded = bool(os.getenv('OPENAI_API_KEY'))
+print(f"[Config] API Key loaded: {api_key_loaded}")
+if not api_key_loaded:
+    print("[WARNING] OPENAI_API_KEY not found! AI features will not work.")
 Speaker = Literal["user", "assistant"]
 Status = Literal["active", "completed"]
 
