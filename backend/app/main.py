@@ -19,7 +19,11 @@ from pydantic import BaseModel, Field
 from app.response import SimpleRAG, generate_debate_with_coach_loop, generate_rebuttal_speech
 
 # ---------- Types ----------
-load_dotenv()
+# Load .env file from backend directory (parent of app directory)
+env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
+load_dotenv(dotenv_path=env_path)
+print(f"[Config] Loading .env from: {env_path}")
+print(f"[Config] API Key loaded: {bool(os.getenv('OPENAI_API_KEY'))}")
 Speaker = Literal["user", "assistant"]
 Status = Literal["active", "completed"]
 
@@ -288,8 +292,12 @@ if OPENAI_API_KEY:
     try:
         from openai import OpenAI  # OpenAI Python SDK ≥ 1.0
         client = OpenAI(api_key=OPENAI_API_KEY)
-    except Exception:
+        print(f"[OpenAI] Client initialized successfully")
+    except Exception as e:
         client = None
+        print(f"[OpenAI] Failed to initialize client: {type(e).__name__}: {e}")
+else:
+    print("[OpenAI] No API key found in environment variables")
 
 def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
     """
@@ -453,8 +461,9 @@ Make your case compelling and well-structured."""
                 max_tokens=max_tokens,
             )
             return resp.choices[0].message.content.strip()
-        except Exception:
-            pass  # fall back to stub
+        except Exception as e:
+            print(f"[ERROR] OpenAI API call failed: {type(e).__name__}: {e}")
+            # fall back to stub
 
     # Stub output for local dev without API key
     return f"(AI {debate.next_speaker} R{debate.current_round}) Brief, signposted response."
