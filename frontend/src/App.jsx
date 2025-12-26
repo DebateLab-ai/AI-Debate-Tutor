@@ -940,12 +940,12 @@ function App() {
                       <p className="drill-rec-text">
                         💡 Focus on improving your <strong>{score.weakness_type}</strong> skills with a targeted drill!
                       </p>
-                      <a
-                        href={`/drill-rebuttal?motion=${encodeURIComponent(topic)}&position=${position}&weakness=${encodeURIComponent(score.weakness_type)}`}
+                      <Link
+                        to={`/drill-rebuttal?motion=${encodeURIComponent(topic)}&position=${position}&weakness=${encodeURIComponent(score.weakness_type)}`}
                         className="btn-drill"
                       >
                         Practice {score.weakness_type.charAt(0).toUpperCase() + score.weakness_type.slice(1)} Skills →
-                      </a>
+                      </Link>
                     </div>
                   )}
                 </div>
