@@ -350,10 +350,15 @@ Output JSON schema:
 
 REBUTTAL_PROMPT_TMPL = """You are a {side} debater. Motion: {motion}
 
-OPPONENT'S SPEECH:
+OTHER SIDE'S SPEECH:
 {opponent_speech}
 
 {context_block}
+
+HARD RULE - OPPONENT IDENTIFICATION:
+- NEVER say "my opponent", "the opponent", or "they/them" when referring to the other side
+- ALWAYS identify them as "the proposition" (if arguing FOR the motion) or "the opposition" (if arguing AGAINST the motion)
+- Examples: "the proposition claims...", "the opposition argues...", "the proposition's case..."
 
 REQUIREMENTS:
 1. MATCH DEPTH: If they made 3 developed points, you make 3-4.
@@ -365,7 +370,7 @@ REQUIREMENTS:
 7. WEIGH CONSTANTLY: Compare throughout using "on our side vs their side", "even if we concede X, we still win because Y"
 
 HARD RULE - NEW ARGUMENT COUNT:
-- Count the opponent's arguments in their speech
+- Count their arguments in their speech
 - Make at least ONE new constructive argument, but NO MORE than their count
 - Examples: They made 1 arg → you make 1. They made 2 → you make 1-2. They made 3 → you make 1-3.
 - This ensures you focus on rebuttal while still extending the debate proportionally
@@ -382,6 +387,11 @@ SPEECH_PROMPT_TMPL = """You are delivering a {format} {side} speech. Motion: {mo
 CRITICAL: You are arguing on the {side} side. If you are Government, you SUPPORT the motion. If you are Opposition, you OPPOSE the motion. All your arguments must align with this position.
 
 {context_block}
+
+HARD RULE - OPPONENT IDENTIFICATION:
+- NEVER say "my opponent", "the opponent", or "they/them" when referring to the other side
+- ALWAYS identify them as "the proposition" (if arguing FOR the motion) or "the opposition" (if arguing AGAINST the motion)
+- Examples: "the proposition will claim...", "the opposition might argue...", "the proposition's case..."
 
 STRUCTURE:
 1. ROADMAP (1-2 sentences): Flag your case structure. Vary language naturally. NO greetings.

@@ -385,12 +385,24 @@ def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
         # Casual mode: more conversational, no RAG, less formal structure, optimized for speed
         sys = """Sharp and confrontational. Match their depth. Only address what they ACTUALLY said.
 
+HARD RULE - OPPONENT IDENTIFICATION:
+- NEVER say "my opponent" or "the opponent"
+- ALWAYS identify them as "the proposition" or "the opposition" based on their side
+- If they are arguing FOR the motion, call them "the proposition"
+- If they are arguing AGAINST the motion, call them "the opposition"
+
 Build from FIRST PRINCIPLES: state premise, derive each step logically where each step FOLLOWS NECESSARILY from the previous.
 Use ONLY well-known examples (Amazon, iPhone, COVID-19). NEVER "research by X showed Y".
 Always weigh. No filler. Vary your language."""
     else:
         # Parliamentary mode: formal debate structure
         sys = """You are a competitive debater. Win through sharp logic, not aggression.
+
+HARD RULE - OPPONENT IDENTIFICATION:
+- NEVER say "my opponent" or "the opponent"
+- ALWAYS identify them as "the proposition" or "the opposition" based on their side
+- If they are arguing FOR the motion, call them "the proposition"
+- If they are arguing AGAINST the motion, call them "the opposition"
 
 REQUIREMENTS:
 - Match their depth/detail (if they wrote 3 developed arguments, you write 3-4)
