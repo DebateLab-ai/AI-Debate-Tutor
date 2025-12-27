@@ -24,6 +24,33 @@ const fetchWithTimeout = async (url, options = {}, timeoutMs = 60000) => {
   }
 }
 
+// Render markdown bold (**text**) as JSX
+const renderMarkdown = (text) => {
+  if (!text) return null
+
+  const parts = []
+  let lastIndex = 0
+  const regex = /\*\*(.+?)\*\*/g
+  let match
+
+  while ((match = regex.exec(text)) !== null) {
+    // Add text before the match
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index))
+    }
+    // Add bold text
+    parts.push(<strong key={match.index}>{match[1]}</strong>)
+    lastIndex = regex.lastIndex
+  }
+
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex))
+  }
+
+  return parts.length > 0 ? parts : text
+}
+
 const DEBATE_TOPICS = [
   'Social media does more harm than good',
   'As a college student, pursuing passions is preferable to selling out',
@@ -637,7 +664,7 @@ function App() {
                   }}
                 >
                   Parliamentary
-                  <small>Competition debate</small>
+                  <small>Competition-level debate</small>
                 </button>
               </div>
             </div>
@@ -767,14 +794,14 @@ function App() {
             >
               <div className="message-header">
                 <span className="message-speaker">
-                  {message.speaker === 'user' 
+                  {message.speaker === 'user'
                     ? `You (${position === 'for' ? 'FOR' : 'AGAINST'})`
                     : `AI (${position === 'for' ? 'AGAINST' : 'FOR'})`
                   }
                 </span>
                 <span className="message-round">Round {message.round_no}</span>
               </div>
-              <div className="message-content">{message.content}</div>
+              <div className="message-content">{renderMarkdown(message.content)}</div>
             </div>
           ))}
           

@@ -360,9 +360,21 @@ REQUIREMENTS:
 2. ACCURACY: Only address what they ACTUALLY said. Never invent arguments.
 3. GROUP BY THEME: Organize rebuttals by big-picture themes, not point-by-point.
 4. FIRST PRINCIPLES: Build each response like a mathematical proof - state premise, derive conclusions step-by-step where each step FOLLOWS NECESSARILY from the previous.
-5. WELL-KNOWN EXAMPLES ONLY: Use Amazon, COVID-19, major events. NEVER cite "research by X showed Y".
+5. WELL-KNOWN EXAMPLES ONLY: Use Amazon, COVID-19, major events laypeople know.
 6. VARY LANGUAGE: Signpost clearly but naturally - don't robotically repeat "firstly... secondly...". Try "To start...", "Moving to...", "Beyond that...".
 7. WEIGH CONSTANTLY: Compare throughout using "on our side vs their side", "even if we concede X, we still win because Y"
+
+HARD RULE - NEW ARGUMENT COUNT:
+- Count the opponent's arguments in their speech
+- Make at least ONE new constructive argument, but NO MORE than their count
+- Examples: They made 1 arg → you make 1. They made 2 → you make 1-2. They made 3 → you make 1-3.
+- This ensures you focus on rebuttal while still extending the debate proportionally
+
+CRITICAL - NEVER CITE SOURCES:
+- DO NOT say "research by X", "studies show", "according to Y", "evidence suggests", "data indicates"
+- Even if BACKGROUND KNOWLEDGE is provided, present the reasoning as YOUR OWN logical analysis
+- Treat all information as common knowledge and first-principles reasoning
+- Debate is about LOGIC, not citations
 """
 
 SPEECH_PROMPT_TMPL = """You are delivering a {format} {side} speech. Motion: {motion}
@@ -387,22 +399,32 @@ STRUCTURE:
 5. CONCLUSION (3-5 sentences): Collapse to key question and why you win.
 
 CRITICAL RULES:
-- WELL-KNOWN EXAMPLES ONLY: Amazon, iPhone, COVID-19, major events. NEVER "research by X showed Y"
+- WELL-KNOWN EXAMPLES ONLY: Amazon, iPhone, COVID-19, major events laypeople know
 - FIRST PRINCIPLES: Each logical step must follow necessarily from the previous. No leaps.
 - VARY LANGUAGE: Don't robotically repeat "firstly... secondly...". Sound human.
-- Zero filler, no citations ("as NYT reported"), sound like SPEAKING not essay
-- If CONTEXT provided: build on it but fill gaps
+- Zero filler, sound like SPEAKING not essay
+
+NEVER CITE SOURCES - THIS IS CRITICAL:
+- DO NOT say "research by X", "studies show", "according to Y", "evidence suggests", "data indicates", "as reported by"
+- Even if BACKGROUND KNOWLEDGE is provided, present it as YOUR OWN first-principles logical reasoning
+- Treat all information as common knowledge you're deriving from first principles
+- Debate is about LOGIC, not who cites more sources
 """
 
 
 def _format_context_blocks(hits):
     if not hits:
-        return "CONTEXT: (none provided)\n"
+        return "BACKGROUND KNOWLEDGE (DO NOT CITE): None\n"
     blocks = []
     for doc, score in hits:
-        meta = f"source={doc.meta.get('path','n/a')} | id={doc.id}" if doc.meta else f"id={doc.id}"
-        blocks.append(f"[SCORE {score:.3f}] {meta}\n{doc.text}")
-    return "CONTEXT\n=======\n" + "\n\n".join(blocks)
+        # DO NOT include source metadata - makes model think it should cite
+        blocks.append(doc.text)
+    return (
+        "BACKGROUND KNOWLEDGE (DO NOT CITE AS 'RESEARCH' OR 'STUDIES'):\n"
+        "Use the logical reasoning below, but present it as YOUR OWN first-principles analysis.\n"
+        "NEVER say 'research shows' or 'studies indicate' - treat this as common knowledge.\n"
+        "=======\n" + "\n\n".join(blocks)
+    )
 
 def generate_debate_with_coach_loop(
     rag: SimpleRAG,

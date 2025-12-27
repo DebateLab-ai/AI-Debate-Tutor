@@ -3,6 +3,33 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
+// Render markdown bold (**text**) as JSX
+const renderMarkdown = (text) => {
+  if (!text) return null
+
+  const parts = []
+  let lastIndex = 0
+  const regex = /\*\*(.+?)\*\*/g
+  let match
+
+  while ((match = regex.exec(text)) !== null) {
+    // Add text before the match
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index))
+    }
+    // Add bold text
+    parts.push(<strong key={match.index}>{match[1]}</strong>)
+    lastIndex = regex.lastIndex
+  }
+
+  // Add remaining text
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex))
+  }
+
+  return parts.length > 0 ? parts : text
+}
+
 // Fetch with timeout utility
 const fetchWithTimeout = async (url, options = {}, timeoutMs = 60000) => {
   const controller = new AbortController()
@@ -298,7 +325,7 @@ function DrillPage() {
                 </div>
               </div>
             </div>
-            <p className="drill-feedback">{lastScore.feedback}</p>
+            <p className="drill-feedback">{renderMarkdown(lastScore.feedback)}</p>
           </div>
         )}
 
@@ -306,7 +333,7 @@ function DrillPage() {
           <h3>Claim to Respond To</h3>
           <div className="claim-content">
             <span className="claim-position-tag">{claimPosition?.toUpperCase()}</span>
-            <p>{currentClaim}</p>
+            <p>{renderMarkdown(currentClaim)}</p>
           </div>
         </div>
 

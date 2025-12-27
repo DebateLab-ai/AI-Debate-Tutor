@@ -395,6 +395,7 @@ Always weigh. No filler. Vary your language."""
 REQUIREMENTS:
 - Match their depth/detail (if they wrote 3 developed arguments, you write 3-4)
 - Only rebut what they ACTUALLY said - no invented arguments
+- HARD RULE FOR OPPOSITION: Make at least ONE new argument, but NO MORE than their number of arguments. If they made 2 arguments, you make 1-2 new arguments (not 0, not 3+).
 - Build from FIRST PRINCIPLES: state premise, derive each step logically where each step FOLLOWS NECESSARILY from the previous. No logical leaps.
 - Show causal chains step-by-step
 - Use ONLY well-known examples (Amazon, iPhone, COVID-19, major events). NEVER cite "research by X showed Y"
@@ -430,7 +431,11 @@ Deliver a rebuttal speech that:
    - Build rebuttals from FIRST PRINCIPLES: identify their premise, show step-by-step why the logical chain breaks down
    - Negate first (show why claim is NOT true), then mitigate (show it's smaller), then concede+outweigh
    - Use ONLY well-known examples. NEVER cite "research by X showed Y"
-3. Presents 1 new extension/spike
+3. HARD RULE: Presents new arguments proportional to opponent's count:
+   - Count their arguments, then make at least ONE new argument, but NO MORE than they made
+   - If they made 1 arg → you make 1 new arg
+   - If they made 2 args → you make 1-2 new args
+   - If they made 3 args → you make 1-3 new args
 4. Weighs comparatively throughout
 
 Sharp, precise, rigorous."""
