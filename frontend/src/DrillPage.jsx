@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
+import { useToast, ToastContainer } from './Toast'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -52,6 +53,7 @@ const fetchWithTimeout = async (url, options = {}, timeoutMs = 60000) => {
 }
 
 function DrillPage() {
+  const toast = useToast()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
 
@@ -133,7 +135,7 @@ function DrillPage() {
 
   const startDrill = async () => {
     if (!isOnline) {
-      alert('You are offline. Please check your connection.')
+      toast.error('You are offline. Please check your connection.')
       return
     }
     setLoading(true)
@@ -160,11 +162,11 @@ function DrillPage() {
     } catch (error) {
       console.error('Error starting drill:', error)
       if (error.message && (error.message.includes('fetch') || error.message.includes('network') || error.message.includes('Failed to fetch'))) {
-        alert('Unable to connect. Please check your internet connection and try again.')
+        toast.error('Unable to connect. Please check your internet connection and try again.')
       } else if (error.message && error.message.includes('timed out')) {
-        alert('Request took too long. Please try again.')
+        toast.error('Request took too long. Please try again.')
       } else {
-        alert('Something went wrong. Please try again.')
+        toast.error('Something went wrong. Please try again.')
       }
     } finally {
       setLoading(false)
@@ -173,12 +175,12 @@ function DrillPage() {
 
   const submitRebuttal = async (autoSubmit = false) => {
     if (!rebuttal.trim() && !autoSubmit) {
-      alert('Please enter your rebuttal')
+      toast.error('Please enter your rebuttal')
       return
     }
 
     if (!isOnline) {
-      alert('You are offline. Please check your connection and try again.')
+      toast.error('You are offline. Please check your connection and try again.')
       return
     }
 
@@ -216,7 +218,7 @@ function DrillPage() {
             }
           }
         }
-        alert(errorMessage)
+        toast.error(errorMessage)
         return
       }
 
@@ -237,11 +239,11 @@ function DrillPage() {
       console.error('Error submitting rebuttal:', error)
       // NEVER expose error.message - could contain prompts during network failures
       if (error.message && (error.message.includes('fetch') || error.message.includes('network') || error.message.includes('Failed to fetch'))) {
-        alert('Unable to connect. Please check your internet connection and try again.')
+        toast.error('Unable to connect. Please check your internet connection and try again.')
       } else if (error.message && error.message.includes('timed out')) {
-        alert('Request took too long. Please try again.')
+        toast.error('Request took too long. Please try again.')
       } else {
-        alert('Something went wrong. Please try again.')
+        toast.error('Something went wrong. Please try again.')
       }
     } finally {
       setSubmitting(false)
@@ -267,6 +269,7 @@ function DrillPage() {
 
   return (
     <div className="app drill-mode">
+      <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
       <button
         className="return-to-landing"
         onClick={() => navigate('/')}

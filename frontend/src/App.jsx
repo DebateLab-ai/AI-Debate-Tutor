@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
+import { useToast, ToastContainer } from './Toast'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -71,6 +72,7 @@ const DEBATE_TOPICS = [
 ]
 
 function App() {
+  const toast = useToast()
   const [debateId, setDebateId] = useState(null)
   const [debate, setDebate] = useState(null)
   const [messages, setMessages] = useState([])
@@ -206,6 +208,7 @@ function App() {
   // Auto-submit when timer expires
   useEffect(() => {
     if (timeRemaining === 0 && debate?.next_speaker === 'user' && !submitting) {
+      toast.warning("⏱️ Time's up! Your argument was automatically submitted.", 6000)
       submitArgument(true)
     }
   }, [timeRemaining])
@@ -242,12 +245,12 @@ function App() {
 
   const startDebate = async () => {
     if (!topic.trim()) {
-      alert('Please enter a debate topic')
+      toast.error('Please enter a debate topic')
       return
     }
 
     if (!isOnline) {
-      alert('You are offline. Please check your connection and try again.')
+      toast.error('You are offline. Please check your connection and try again.')
       return
     }
     setLoading(true)
@@ -283,7 +286,7 @@ function App() {
             }
           }
         }
-        alert(errorMessage)
+        toast.error(errorMessage)
         setLoading(false)
         return
       }
@@ -302,11 +305,11 @@ function App() {
       console.error('Error starting debate:', error)
       // Check if it's a network/connection error or timeout
       if (error.message && error.message.includes('timed out')) {
-        alert('The request took too long. Please check your connection and try again.')
+        toast.error('The request took too long. Please check your connection and try again.')
       } else if (error.message && error.message.includes('Failed to fetch')) {
-        alert('Unable to connect. Please check your internet connection and try again.')
+        toast.error('Unable to connect. Please check your internet connection and try again.')
       } else {
-        alert('Something went wrong. Please try again.')
+        toast.error('Something went wrong. Please try again.')
       }
     } finally {
       setLoading(false)
@@ -315,7 +318,7 @@ function App() {
 
   const transcribeAudio = async (file) => {
     if (!isOnline) {
-      alert('You are offline. Please check your connection.')
+      toast.error('You are offline. Please check your connection.')
       return null
     }
     const formData = new FormData()
@@ -331,11 +334,11 @@ function App() {
     } catch (error) {
       console.error('Transcription error:', error)
       if (error.message && error.message.includes('timed out')) {
-        alert('Transcription took too long. Please try again.')
+        toast.error('Transcription took too long. Please try again.')
       } else if (error.message && error.message.includes('Failed to fetch')) {
-        alert('Unable to connect. Please check your internet connection and try again.')
+        toast.error('Unable to connect. Please check your internet connection and try again.')
       } else {
-        alert('Unable to transcribe audio. Please try again.')
+        toast.error('Unable to transcribe audio. Please try again.')
       }
       return null
     }
@@ -373,7 +376,7 @@ function App() {
       setRecording(true)
     } catch (error) {
       console.error('Recording error:', error)
-      alert('Unable to access microphone. Please check permissions.')
+      toast.error('Unable to access microphone. Please check permissions.')
     }
   }
 
@@ -387,17 +390,17 @@ function App() {
 
   const submitArgument = async (autoSubmit = false) => {
     if (!debateId) {
-      if (!autoSubmit) alert('Please enter your argument')
+      if (!autoSubmit) toast.error('Please enter your argument')
       return
     }
 
     if (!argument.trim() && !autoSubmit) {
-      alert('Please enter your argument')
+      toast.error('Please enter your argument')
       return
     }
 
     if (!isOnline) {
-      alert('You are offline. Please check your connection and try again.')
+      toast.error('You are offline. Please check your connection and try again.')
       return
     }
 
@@ -430,7 +433,7 @@ function App() {
             }
           }
         }
-        alert(errorMessage)
+        toast.error(errorMessage)
         setSubmitting(false)
         return
       }
@@ -474,9 +477,9 @@ function App() {
     } catch (error) {
       console.error('Error submitting argument:', error)
       if (error.message && (error.message.includes('fetch') || error.message.includes('network') || error.message.includes('Failed to fetch'))) {
-        alert('Unable to connect. Please check your internet connection and try again.')
+        toast.error('Unable to connect. Please check your internet connection and try again.')
       } else {
-        alert('Something went wrong. Please try again.')
+        toast.error('Something went wrong. Please try again.')
       }
     } finally {
       setSubmitting(false)
@@ -486,7 +489,7 @@ function App() {
   const generateAITurn = async (targetId = debateId) => {
     if (!targetId) return
     if (!isOnline) {
-      alert('You are offline. Please check your connection.')
+      toast.error('You are offline. Please check your connection.')
       return
     }
 
@@ -531,11 +534,11 @@ function App() {
       console.error('Error generating AI turn:', error)
       // NEVER expose error.message - could contain prompts during network failures
       if (error.message && error.message.includes('timed out')) {
-        alert('The AI response took too long. Please try again.')
+        toast.error('The AI response took too long. Please try again.')
       } else if (error.message && error.message.includes('Failed to fetch')) {
-        alert('Unable to connect. Please check your internet connection and try again.')
+        toast.error('Unable to connect. Please check your internet connection and try again.')
       } else {
-        alert('Unable to generate AI response. Please try again.')
+        toast.error('Unable to generate AI response. Please try again.')
       }
     } finally {
       setLoading(false)
@@ -545,7 +548,7 @@ function App() {
   const finishDebate = async () => {
     if (!debateId) return
     if (!isOnline) {
-      alert('You are offline. Please check your connection.')
+      toast.error('You are offline. Please check your connection.')
       return
     }
     setLoading(true)
@@ -559,9 +562,9 @@ function App() {
     } catch (error) {
       console.error('Error finishing debate:', error)
       if (error.message && (error.message.includes('fetch') || error.message.includes('network') || error.message.includes('Failed to fetch'))) {
-        alert('Unable to connect. Please check your internet connection and try again.')
+        toast.error('Unable to connect. Please check your internet connection and try again.')
       } else {
-        alert('Something went wrong. Please try again.')
+        toast.error('Something went wrong. Please try again.')
       }
     } finally {
       setLoading(false)
@@ -742,6 +745,7 @@ function App() {
   // Debate screen
   return (
     <div className="app debate-mode">
+      <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
       <Link to="/" className="return-to-landing" onClick={resetDebate} title="Return to home">
         ← Home
       </Link>
@@ -783,7 +787,11 @@ function App() {
         <div className="messages-container">
           {messages.length === 0 && (
             <div className="empty-state">
-              <p>The debate is starting. {debate?.next_speaker === 'assistant' ? 'Waiting for AI...' : 'Make your first argument!'}</p>
+              <p>
+                {debate?.next_speaker === 'assistant'
+                  ? 'Waiting for AI to generate opening argument... (10-20 seconds)'
+                  : 'Make your first argument!'}
+              </p>
             </div>
           )}
           
@@ -817,6 +825,9 @@ function App() {
                   <span></span>
                   <span></span>
                   <span></span>
+                </div>
+                <div style={{ marginTop: '8px', fontSize: '12px', color: '#8b92a7' }}>
+                  Generating response... (usually takes 10-20 seconds)
                 </div>
               </div>
             </div>
@@ -929,7 +940,7 @@ function App() {
               <div className="score-card">
                 <p className="muted">
                   {scoring
-                    ? 'Calculating score...'
+                    ? 'Calculating score... (this usually takes 15-30 seconds)'
                     : scoreError
                       ? `Unable to load score: ${scoreError}`
                       : 'Score not available yet.'}
@@ -939,7 +950,7 @@ function App() {
                   onClick={() => fetchScore(debateId, true)}
                   disabled={scoring}
                 >
-                  {scoring ? 'Scoring...' : 'Calculate Score'}
+                  {scoring ? 'Analyzing your performance...' : 'Calculate Score'}
                 </button>
               </div>
             )}
