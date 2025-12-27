@@ -355,63 +355,14 @@ OPPONENT'S SPEECH:
 
 {context_block}
 
-NON-NEGOTIABLES:
-1. MATCH DEPTH: If they made 3 developed points, you make 3-4. Quality fills space naturally.
+REQUIREMENTS:
+1. MATCH DEPTH: If they made 3 developed points, you make 3-4.
 2. ACCURACY: Only address what they ACTUALLY said. Never invent arguments.
-3. STRATEGIC ORGANIZATION: Group rebuttals by theme, not rigid formula. Adapt structure to content.
-
-REFERENCE STYLE (emulate this structure - from world-class rebuttal speech):
-
-Opening roadmap: "i'm going to talk about three things in this speech firstly [theme 1] second [theme 2] and thirdly [theme 3]"
-
-Within each theme:
-- Sub-structure with numbers: "under this theme i want to do three things one... second... third..."
-- Clear clash: "they say X... no thank you... here's what's actually true: [step-by-step logic]"
-- Explicit weighing: "the comparative then is this...", "on balance...", "that is why we're better on our side"
-- Impact crystallization: "the impact of this is...", "that is a structural reason why..."
-
-Mechanistic depth:
-- "firstly... here we told you two things one that... second the fact that..."
-- "three sets of responses number one... second... thirdly though and this is crucial..."
-- Build causal chains: "given that X... that means Y... therefore Z"
-
-Comparative framing (constant):
-- "on our side... on their side..."
-- "they try to co-opt our benefits by saying... no thank you... [explain why]"
-- "even if we concede X, we still win because..."
-
-ACTUAL STRUCTURE (flexible, adapt to content):
-
-1. ROADMAP: "i'm going to talk about [number] things in this speech: first [theme], second [theme], third [theme]"
-
-2. THEMATIC REBUTTALS (group by big-picture themes, not point-by-point):
-   - For each theme: "firstly on [theme name]"
-   - Sub-structure: "under this i want to do three things: one... two... three..."
-   - Clear clash: "they say [their claim]... [response with step-by-step logic]"
-   - Mechanistic depth: "here's what's important to note [causal chain]"
-   - Weigh constantly: "the comparative then is this...", "on balance...", "that is why..."
-
-3. SIGNPOSTING (natural but clear):
-   - "firstly on...", "secondly then on...", "thirdly and finally..."
-   - "number one...", "second...", "thirdly though and this is crucial..."
-   - "before i move to the second theme, [quick weighing]"
-
-4. WEIGHING (throughout, not just at end):
-   - "the comparative then is this..."
-   - "on balance we are happier on our side"
-   - "that is a structural reason why they do not get to co-opt our benefits"
-   - "even if we concede X, we still win because Y"
-
-5. CONCLUSION: Brief wrap - "propositions choice banks our future on fleeting passions and we could not accept that"
-
-STYLE (emulate the corpus):
-- Strategic flexibility - structure adapts to win the round
-- Every sentence does work - no fluff
-- Clear causal chains: "given that X... that means Y... therefore Z"
-- Constant comparison: "on our side... on their side..."
-- Explicit impact: "that is why...", "this means...", "the impact of this..."
-- Natural but clear signposting - not robotic
-- Match their depth (crucial)
+3. GROUP BY THEME: Organize rebuttals by big-picture themes, not point-by-point.
+4. FIRST PRINCIPLES: Build each response like a mathematical proof - state premise, derive conclusions step-by-step where each step FOLLOWS NECESSARILY from the previous.
+5. WELL-KNOWN EXAMPLES ONLY: Use Amazon, COVID-19, major events. NEVER cite "research by X showed Y".
+6. VARY LANGUAGE: Signpost clearly but naturally - don't robotically repeat "firstly... secondly...". Try "To start...", "Moving to...", "Beyond that...".
+7. WEIGH CONSTANTLY: Compare throughout using "on our side vs their side", "even if we concede X, we still win because Y"
 """
 
 SPEECH_PROMPT_TMPL = """You are delivering a {format} {side} speech. Motion: {motion}
@@ -420,81 +371,27 @@ CRITICAL: You are arguing on the {side} side. If you are Government, you SUPPORT
 
 {context_block}
 
-STRICT STRUCTURE - Follow this exactly:
+STRUCTURE:
+1. ROADMAP (1-2 sentences): Flag your case structure. Vary language naturally. NO greetings.
+2. OPENING (2-3 sentences): Hook with well-known example, pose the key question.
+3. FRAMING & BURDENS (3-4 sentences): Define lens and establish burdens strategically.
+4. CONTENTIONS (1-3 arguments):
+   Each needs: PREMISE → MECHANISMS (2-3) → WEIGHING → optional PRE-EMPTION
 
-1. ROADMAP (1-2 sentences) - REQUIRED
-   - Flag what you'll do: "Here's our case. First, I'll establish [framework/burden]. Second, I'll make [number] arguments: [brief labels]. Third, I'll weigh on [key metric]."
-   - Keep it brief and conversational
-   - NO greetings, NO "thank you"
+   Mechanisms must:
+   - Be INDEPENDENT causal pathways
+   - Build from FIRST PRINCIPLES like a math proof: state premise, derive each step where steps FOLLOW NECESSARILY
+   - Use 2-3 sentences each: causal chain + elaboration
+   - Vary signposting ("To start...", "Beyond that..." not "First... Second...")
 
-2. OPENING (2-3 sentences)
-   - Hook with a chilling, well-known real-world example that puts the stakes on the table
-   - Use that example to pose one sharp philosophical question this round must answer
-   - NO greetings; NO rephrasing the motion; NO burden talk—sound like a human storyteller setting up the clash
+5. CONCLUSION (3-5 sentences): Collapse to key question and why you win.
 
-3. FRAMING & BURDENS (3-4 sentences)
-   - Define the lens/framework that benefits your side
-   - Establish what your side must prove vs what opposition must prove
-   - Set up burdens strategically to make your job easier and theirs harder
-
-4. CONTENTIONS (MINIMUM 1 argument, 2-3 preferred - well-developed)
-   Each contention must include: PREMISE, LINKS/WARRANTS, and WEIGHING.
-   Pre-emption is optional but strategic when there's an obvious opposition response.
-
-   MAKE STRATEGIC CHOICES about order and emphasis:
-   - If the mechanism is devastating, spend more time there
-   - If weighing is your strongest layer, lead with it or emphasize it heavily
-   - If there's a glaring opposition argument, pre-empt it; if not, skip it
-   - Don't be formulaic—adapt the structure to what wins THIS specific argument
-
-   Components to include:
-
-   a) PREMISE/TAGLINE
-      - One punchy sentence stating the argument
-
-   b) LINKS & WARRANTS (2-3 distinct mechanisms, well-developed)
-      - Provide 2-3 INDEPENDENT mechanisms (different causal pathways to the same conclusion)
-      - Develop EACH mechanism with 2-3 sentences:
-        * Sentence 1: State the causal chain (X→Y→Z)
-        * Sentence 2-3: Elaborate with concrete examples, evidence, or explanation
-      - SIGNPOST each mechanism: "First mechanism... Second mechanism... Third mechanism..."
-      - Each mechanism must be distinct and non-overlapping (not just restating the same idea)
-      - Use concrete mechanisms, not assertions
-      - If CONTEXT is provided, build on that logical structure but fill gaps with your own research
-      - Cite examples an intellectual voter would recognize (NYT front page test - no obscure studies)
-
-      Example structure:
-      "First mechanism: social comparison. When users scroll through feeds, they see curated highlight reels of others' lives, triggering constant upward comparison. This creates chronic feelings of inadequacy because the brain treats these comparisons as real benchmarks for success.
-
-      Second mechanism: dopamine hijacking. Social media platforms use variable reward schedules—like slot machines—to keep users engaged. Every notification, like, or comment triggers a dopamine hit, creating addictive patterns that make it hard to disengage even when the experience is negative.
-
-      Third mechanism: sleep disruption. Late-night scrolling suppresses melatonin production and overstimulates the brain. Poor sleep quality compounds mental health issues, creating a vicious cycle where social media both causes anxiety and becomes the coping mechanism for it."
-
-   c) WEIGHING (within this argument)
-      - Explicitly compare: probability AND magnitude AND timeframe
-      - Explain why THIS argument matters in THIS specific motion/round
-      - Force a clear comparison: "This outweighs because..."
-
-   d) PRE-EMPTION (only when strategically necessary)
-      - Name the likely pushback specifically
-      - Frontload why it fails or why you still win even if it's true
-      - Weigh against it
-
-5. CONCLUSION (3-5 sentences)
-   - Collapse the debate to the key question
-   - Explain why you win on the most important layer
-   - Drive home why the opposition's case cannot overcome yours
-
-MANDATORY STYLE REQUIREMENTS:
-- SIGNPOST HEAVILY: Label everything clearly. "Our first contention is...", "Three mechanisms for this: first..., second..., third...", "Let me weigh this on two layers..."
-- DEVELOP MECHANISMS FULLY: Each mechanism needs 2-3 sentences. Don't just list them—explain the causal chain, then elaborate with evidence or examples. This makes contentions substantial and persuasive.
-- Zero filler. No "thank you for your time," no pleasantries
-- Sound human, not robotic - vary sentence length and rhythm
-- Use concrete numbers and real-world examples (things voters KNOW - Amazon, climate disasters, iPhone, not "study by XYZ institute")
-- NEVER cite sources or say "as NYT reported" or "according to X" - just use the examples directly as common knowledge
-- Make it sound like you're SPEAKING this, not reading an essay
-- Be respectful but strategic - win through superior analysis
-- When using CONTEXT: exploit the logical flow and evidence, but research and fill any gaps to make a complete case
+CRITICAL RULES:
+- WELL-KNOWN EXAMPLES ONLY: Amazon, iPhone, COVID-19, major events. NEVER "research by X showed Y"
+- FIRST PRINCIPLES: Each logical step must follow necessarily from the previous. No leaps.
+- VARY LANGUAGE: Don't robotically repeat "firstly... secondly...". Sound human.
+- Zero filler, no citations ("as NYT reported"), sound like SPEAKING not essay
+- If CONTEXT provided: build on it but fill gaps
 """
 
 

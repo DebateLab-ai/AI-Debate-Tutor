@@ -383,32 +383,24 @@ def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
     
     if debate.mode == "casual":
         # Casual mode: more conversational, no RAG, less formal structure, optimized for speed
-        sys = """You directly challenge their arguments. Be sharp and confrontational.
+        sys = """Sharp and confrontational. Match their depth. Only address what they ACTUALLY said.
 
-RULES:
-- START WITH ROADMAP: "Here's what I'll do: first, rebut your X. Second, make our case on Y."
-- Match their depth/detail (if they wrote 2 developed points, you write 2-3)
-- Only address what they ACTUALLY said - no invented arguments
-- Show logical flaws step-by-step: "You claim X→Y, but this breaks down because..."
-- When you cite examples, clarify: "This shows X, not Y..."
-- Always weigh: "Even granting your point, our side wins because..."
-- Every sentence must matter - no filler
-- Be direct, not polite"""
+Build from FIRST PRINCIPLES: state premise, derive each step logically where each step FOLLOWS NECESSARILY from the previous.
+Use ONLY well-known examples (Amazon, iPhone, COVID-19). NEVER "research by X showed Y".
+Always weigh. No filler. Vary your language."""
     else:
         # Parliamentary mode: formal debate structure
         sys = """You are a competitive debater. Win through sharp logic, not aggression.
 
-RULES:
-- START WITH ROADMAP: "Here's my speech. First, I'll address their X. Second, I'll build our case on Y."
+REQUIREMENTS:
 - Match their depth/detail (if they wrote 3 developed arguments, you write 3-4)
 - Only rebut what they ACTUALLY said - no invented arguments
-- Show causal chains step-by-step: "They claim X→Y. This breaks down because [gap]. In reality, X→Z because [step-by-step]..."
-- Examples illustrate but don't prove: "Consider X. This shows Y, but doesn't prove Z because..."
-- Always weigh: "Even granting their point, we win on [probability/magnitude/timeframe] because..."
-- Signpost clearly: "First, their X argument. Second, their Y argument."
-- Sound like spoken debate, not essay
-- Every sentence must add substance - no filler, no platitudes
-"""
+- Build from FIRST PRINCIPLES: state premise, derive each step logically where each step FOLLOWS NECESSARILY from the previous. No logical leaps.
+- Show causal chains step-by-step
+- Use ONLY well-known examples (Amazon, iPhone, COVID-19, major events). NEVER cite "research by X showed Y"
+- Weigh constantly using probability/magnitude/timeframe
+- Signpost clearly but vary language naturally
+- Sound like spoken debate, not essay. No filler."""
     convo = []
     for m in messages:
         role = "user" if m.speaker == "user" else "assistant"
@@ -425,49 +417,46 @@ RULES:
             prompt_now = f"""Topic: {topic_context}
 Round {debate.current_round} of {debate.num_rounds}
 
-They just said: "{last_user_msg[:200]}{'...' if len(last_user_msg) > 200 else ''}"
+They said: "{last_user_msg[:200]}{'...' if len(last_user_msg) > 200 else ''}"
 
-CRITICAL: Start with a roadmap: "Here's what I'll do: first, rebut your X. Second, make our case."
-
-Respond (max 2 paragraphs). First, refute their argument directly—attack their reasoning, challenge their examples, explain why their logic fails, and point out flaws. Then, make your own points to support your position. Be direct and confrontational. Don't acknowledge or agree with anything they said. Quote specific parts of what they said and explain why those points are wrong, then build your own case."""
+Respond (max 2 paragraphs). Start with roadmap. Build from FIRST PRINCIPLES: identify their premise → show why it fails step-by-step (each step follows necessarily) → establish your premise → derive conclusion. Well-known examples only."""
         else:
             prompt_now = f"""Motion: {topic_context}
-Current round: {debate.current_round} of {debate.num_rounds}
-
-CRITICAL: Start with a roadmap: "Here's my speech. First, I'll address their X argument. Second, I'll extend our case on Y."
+Round {debate.current_round} of {debate.num_rounds}
 
 Deliver a rebuttal speech that:
-1. Tears down the opponent's key arguments (address their strongest points first).
-- When rebutting, think about NEGATING first. If they claim something, explain a proper reason why that something is NOT true
-- If that's hard, mitigate it. If they claim sometthing, explain why it's not as big of an issue as they claimed.
-- If that's also too hard, last resort: concede to it, but explain why your argument is still more important.
-2. Presents 1 new constructive arguments, explicitly label this as an "extension" or "spike"
-3. Does comparative weighing
+1. Starts with roadmap (vary language naturally)
+2. Tears down opponent's key arguments (address strongest first):
+   - Build rebuttals from FIRST PRINCIPLES: identify their premise, show step-by-step why the logical chain breaks down
+   - Negate first (show why claim is NOT true), then mitigate (show it's smaller), then concede+outweigh
+   - Use ONLY well-known examples. NEVER cite "research by X showed Y"
+3. Presents 1 new extension/spike
+4. Weighs comparatively throughout
 
-Be sharp, precise, and demonstrate why your case is stronger."""
+Sharp, precise, rigorous."""
     else:
         # Opening speech
         if debate.mode == "casual":
             prompt_now = f"""Topic: {topic_context}
 Round {debate.current_round} of {debate.num_rounds}
 
-CRITICAL: Start with a roadmap: "Here's what I'll do: I'll make [number] arguments about [topic]."
-
-Then share your perspective briefly (max 2 paragraphs). Build at least ONE clear argument with logical reasoning and examples. Keep it conversational and concise—like explaining your position quickly to a friend."""
+Max 2 paragraphs. Start with roadmap (vary language). Build 1+ argument from FIRST PRINCIPLES: state premise → derive each step (each follows necessarily) → conclusion. Well-known examples only. Conversational but rigorous."""
         else:
             prompt_now = f"""Motion: {topic_context}
-Current round: {debate.current_round} of {debate.num_rounds}
+Round {debate.current_round} of {debate.num_rounds}
 
-CRITICAL: Start with a roadmap: "Here's our case. First, [framework]. Second, I'll make [number] arguments: [brief labels]."
-
-Deliver an opening speech following the structure:
-1. Roadmap (1-2 sentences flagging what you'll do)
-2. Opening hook (2-3 sentences with real-world example)
-3. Framing & burdens
-4. MINIMUM 1 contention, 2-3 preferred (each with premise, mechanisms, weighing)
+Deliver an opening speech with this structure:
+1. Roadmap (1-2 sentences, vary language naturally)
+2. Opening hook (2-3 sentences with well-known example)
+3. Framing & burdens (define lens strategically)
+4. Contentions (1-3 arguments):
+   - Each needs: PREMISE → MECHANISMS (2-3) from FIRST PRINCIPLES → WEIGHING
+   - Build mechanisms like mathematical proofs: state premise, derive each step where each FOLLOWS NECESSARILY from previous
+   - Use 2-3 sentences per mechanism
+   - Use ONLY well-known examples (Amazon, iPhone, COVID-19). NEVER "research by X showed Y"
 5. Conclusion
 
-Make your case compelling and well-structured."""
+Compelling, rigorous, well-structured."""
 
     if client:
         try:
@@ -926,52 +915,45 @@ def generate_drill_claim(
     
     # Base prompt for all drill types
     base_instructions = (
-        "You are a debate argument generator. Your job is to generate a single, strong claim "
-        "that a debater might make in a debate.\n\n"
-        "CRITICAL: Focus on LOGICAL FLOW, not examples. Think of this like a mathematical proof.\n\n"
-        "The claim should:\n"
-        "- Be one clear argument (2-3 sentences max)\n"
-        "- Explain the causal chain: if X, then Y happens BECAUSE Z (show the logical mechanism)\n"
-        "- Provide clear reasoning for WHY the claim is true, not just WHAT happens\n"
-        "- Build logical connections step-by-step (e.g., 'If schools are overcrowded, class sizes increase, "
-        "which means teachers have less time per student, therefore learning outcomes decline')\n"
-        "- Be realistic and arguable (not obviously true/false)\n\n"
-        "Do NOT just cite examples. Do NOT say 'For example, in Country X...'. "
-        "Instead, explain the logical reason WHY something would occur.\n\n"
+        "You are a debate argument generator. Generate a single, strong claim that a debater might make (2-3 sentences max).\n\n"
+        "CRITICAL - Build from FIRST PRINCIPLES with MATHEMATICAL RIGOR:\n"
+        "- Start with a premise (axiom) and derive conclusions step-by-step\n"
+        "- Each step must FOLLOW NECESSARILY from the previous one - no logical leaps\n"
+        "- Explain the causal chain: if X, then Y happens BECAUSE Z\n"
+        "- Provide clear reasoning for WHY the claim is true, not just WHAT happens\n\n"
+        "EXAMPLES MUST BE WELL-KNOWN ONLY:\n"
+        "- Use only examples laypeople recognize (Amazon, iPhone, COVID-19, major historical events)\n"
+        "- NEVER cite 'research by X' or 'a study showed Y' - these can be fabricated\n"
+        "- Debate is a game of LOGIC, not who cites more sources\n\n"
         "Do NOT include labels like 'Claim:', just output the argument directly."
     )
     
     # Weakness-specific instructions
     weakness_instructions = {
         "rebuttal": (
-            "Focus: Generate a claim that requires direct refutation. The claim should:\n"
+            "Focus: Generate a claim that requires direct refutation.\n"
             "- Make a clear, testable assertion that can be challenged\n"
-            "- Include a mechanism that has potential flaws or assumptions\n"
-            "- Be structured so a good rebuttal would identify logical gaps or counter-examples"
+            "- Include a mechanism that has potential flaws or assumptions"
         ),
         "structure": (
-            "Focus: Generate a claim that needs clear organization. The claim should:\n"
-            "- Be complex enough to require signposting and clear structure\n"
-            "- Have multiple components that need logical ordering\n"
-            "- Benefit from explicit framing and roadmap"
+            "Focus: Generate a claim that needs clear organization.\n"
+            "- Be complex enough to require signposting and structure\n"
+            "- Have multiple components that need logical ordering"
         ),
         "weighing": (
-            "Focus: Generate a claim with significant impacts that need comparison. The claim should:\n"
+            "Focus: Generate a claim with significant impacts.\n"
             "- Emphasize probability, magnitude, or timeframe of impacts\n"
-            "- Present impacts that can be weighed against alternatives\n"
-            "- Require explicit impact calculus and comparative analysis"
+            "- Present impacts that can be weighed against alternatives"
         ),
         "evidence": (
-            "Focus: Generate a claim that needs concrete evidence. The claim should:\n"
-            "- Make specific factual assertions that can be supported with examples\n"
-            "- Reference real-world scenarios or data points\n"
-            "- Benefit from concrete counter-examples or case studies"
+            "Focus: Generate a claim needing concrete evidence.\n"
+            "- Make factual assertions supported with WELL-KNOWN examples only\n"
+            "- Reference well-known scenarios (Amazon, iPhone, major events) - NOT obscure studies"
         ),
         "strategy": (
-            "Focus: Generate a claim that requires strategic prioritization. The claim should:\n"
-            "- Present multiple potential responses, requiring the debater to choose which to emphasize\n"
-            "- Have varying levels of strength that need strategic allocation\n"
-            "- Require decisions about time investment and argument selection"
+            "Focus: Generate a claim requiring strategic prioritization.\n"
+            "- Present multiple potential responses\n"
+            "- Have varying levels of strength needing strategic allocation"
         ),
     }
     
@@ -1013,8 +995,14 @@ def score_drill_rebuttal(
     base_criteria = (
         "You are a debate coach evaluating a student's drill response.\n\n"
         "The student was given a claim and asked to respond to it. Evaluate their response on:\n"
-        "1. Refutation Quality (0-10): How well do they negate or mitigate the claim? Do they identify flaws in logic, challenge assumptions, or show why the claim doesn't hold?\n"
-        "2. Evidence/Examples (0-10): Do they use concrete counter-examples, data, or real-world scenarios to support their response?\n"
+        "1. Refutation Quality (0-10): How well do they negate or mitigate the claim? Do they:\n"
+        "   - Build rebuttals from FIRST PRINCIPLES (state premise, derive conclusions step-by-step)?\n"
+        "   - Show each logical step FOLLOWS NECESSARILY from the previous one (no logical leaps)?\n"
+        "   - Identify flaws in the opponent's logical chain?\n"
+        "2. Evidence/Examples (0-10): Do they use WELL-KNOWN examples only?\n"
+        "   - REWARD: Examples laypeople recognize (Amazon, iPhone, COVID-19, major historical events)\n"
+        "   - PENALIZE HEAVILY: Citing 'research by X' or 'a study showed Y' (can be fabricated - debate is about LOGIC)\n"
+        "   - REWARD: Building from logical premises rather than relying on citations\n"
         "3. Impact Comparison (0-10): Do they weigh their response against the claim? Do they explain why their point matters more or undermines the claim's significance?\n\n"
     )
     
@@ -1043,9 +1031,10 @@ def score_drill_rebuttal(
         ),
         "evidence": (
             "FOCUS: Pay special attention to Evidence/Examples. The student should:\n"
-            "- Use concrete, specific examples or data\n"
-            "- Reference real-world scenarios\n"
-            "- Provide substantial evidence to support their response\n"
+            "- Use WELL-KNOWN examples only (Amazon, iPhone, major events) - NOT obscure research\n"
+            "- PENALIZE if they cite 'research by X' or 'a study showed Y'\n"
+            "- REWARD building from logical premises with well-known examples laypeople can verify\n"
+            "- Reference WELL-KNOWN real-world scenarios as illustrations, not as proof\n"
             "Weight Evidence/Examples more heavily in overall_score.\n\n"
         ),
         "strategy": (
