@@ -519,17 +519,23 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
     # Determine user position and number of rounds from debate
     user_is_for = "User: for" in (debate.title or "").lower() or "(User: FOR" in (debate.title or "")
     num_rounds = debate.num_rounds
-    
+
+    # Check if this is an opening speech (user went first with only one speech delivered)
+    user_went_first = messages[0].speaker == "user" if messages else False
+    user_messages_count = sum(1 for m in messages if m.speaker == "user")
+    is_opening_speech = user_went_first and user_messages_count == 1
+
     system_prompt = (
         "You are DebateJudgeGPT, an expert debate adjudicator across APDA, Public Forum, and WSDC formats.\n"
         "You will be given the full transcript of a debate between a human debater and an AI sparring partner.\n"
         "IMPORTANT: Messages labeled with '[Round X · USER]' are from the HUMAN DEBATER. Messages labeled with '[Round X · ASSISTANT]' are from the AI.\n"
         "Your task is to evaluate ONLY the HUMAN DEBATER's performance (messages labeled 'USER'). Do NOT evaluate the AI's performance.\n"
         "Only quote and reference statements made by USER, not ASSISTANT.\n\n"
-        f"Context: The human debater (USER) is {'FOR' if user_is_for else 'AGAINST'} the motion. The debate has {num_rounds} round(s).\n\n"
+        f"Context: The human debater (USER) is {'FOR' if user_is_for else 'AGAINST'} the motion. The debate has {num_rounds} round(s).\n"
+        f"Speech type: {'OPENING SPEECH (user went first, no opponent speech yet)' if is_opening_speech else 'REBUTTAL/RESPONSE (opponent has spoken)'}\n\n"
         "Score the human on these metrics (0-10 each, integers only):\n"
         "1. Content & Structure – arguments are understandable and well-explained; logical links are explicit; easy to follow; jargon is handled; clear signposting/roadmap.\n"
-        "2. Engagement – direct refutation, comparison, impact weighing, turns/defense. (See engagement applicability rule below for when this is scorable.)\n"
+        "2. Engagement/Opening Quality – (see scoring rule below - changes based on speech type)\n"
         "3. Strategy – prioritizes win conditions; allocates time well across offense/defense; collapses to strongest arguments; avoids overinvesting in weak lines.\n\n"
 
         "SCORING RUBRIC (MUST FOLLOW - use this to calibrate your scores):\n"
@@ -539,16 +545,48 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
         "3-4: Developing - Has noticeable flaws but shows genuine effort. Arguments present but underdeveloped, weak engagement, unclear structure.\n"
         "1-2: Weak - Minimal substantive engagement. Very underdeveloped or off-topic.\n\n"
 
-        "(MUST FOLLOW) for strategy: As long as the user makes arguments that supports their side, that is justification for a score of >= 5\n"
+        "STRATEGY SCORING GUIDELINES (MUST FOLLOW):\n"
+        "- Strategy is hard to judge perfectly, so be generous with scoring:\n"
+        "- If there is AT LEAST a conceivable way for the user to win the debate (even if not optimal) → score >= 6\n"
+        "- If there is good weighing (explicit comparison of probability/magnitude/timeframe) → score >= 7\n"
+        "- Only score < 6 if the strategy is fundamentally flawed (e.g., arguing wrong side, completely ignoring win conditions, no path to victory)\n"
+        "- As long as the user makes arguments that support their side, that alone justifies >= 5\n\n"
 
-        "Engagement applicability rule (MUST FOLLOW):\n"
-        "- Engagement is NOT scorable ONLY if: the user is FOR (proposition) AND there is only 1 round total.\n"
-        "- In ALL other cases (user is AGAINST, OR user is FOR with 2+ rounds), engagement IS scorable and should be evaluated normally.\n"
-        "- If engagement is not scorable (user is FOR with 1 round), set engagement_score=0 and engagement_feedback must be exactly: "
-        "'Not scorable: the user had no opportunity to respond to the opposition.'\n"
-        "- If engagement IS scorable, evaluate it normally (0-10) based on direct refutation, comparison, impact weighing, turns/defense.\n"
-        "- Do NOT mention lack of engagement as a weakness anywhere else when it is not scorable.\n"
+        f"{'OPENING SPEECH' if is_opening_speech else 'REBUTTAL'} - Engagement/Opening Quality Scoring (MUST FOLLOW):\n"
+    )
 
+    if is_opening_speech:
+        system_prompt += (
+            "CRITICAL: This is an OPENING SPEECH. The user went first and has NOT had opportunity to engage with opponent.\n"
+            "DO NOT score based on clash/refutation/engagement - there is nothing to engage with yet!\n"
+            "Instead, for 'engagement_score', evaluate OPENING SPEECH QUALITY (0-10):\n"
+            "- Does the argument clearly support the CORRECT side of the motion (FOR or AGAINST as specified)?\n"
+            "- Is the material COMPARATIVE and likely to generate good debate? (Not just assertions, but comparative analysis)\n"
+            "- Is the argument SUBSTANTIVE and not disingenuous? (Real mechanisms, not strawmen or bad faith)\n"
+            "- Does it set up clash opportunities for the opposition to respond to?\n"
+            "SCORING GUIDE for opening speeches:\n"
+            "9-10: Argument clearly on correct side, highly comparative, substantive mechanisms, sets up excellent debate\n"
+            "7-8: Argument on correct side, reasonably comparative, decent substance, generates debate\n"
+            "5-6: Argument on correct side, somewhat comparative, adequate substance\n"
+            "3-4: Argument on correct side but poorly developed OR comparative but not substantive\n"
+            "1-2: Wrong side, disingenuous, or no comparative material\n"
+            "0: Completely off-topic or incoherent\n"
+            "For 'engagement_feedback', discuss: (1) whether argument is on correct side, (2) how comparative/substantive it is, (3) how well it sets up the debate.\n"
+            "DO NOT mention lack of clash/refutation as a weakness - this is expected for opening speeches.\n"
+        )
+    else:
+        system_prompt += (
+            "This is a REBUTTAL/RESPONSE. The user has opportunity to engage with opponent's arguments.\n"
+            "For 'engagement_score', evaluate ENGAGEMENT (0-10):\n"
+            "- Direct refutation of opponent's arguments\n"
+            "- Comparison and impact weighing\n"
+            "- Turns and defense\n"
+            "- Responsiveness to opponent's case\n"
+            "For 'engagement_feedback', discuss quality of clash, refutation, and comparative analysis.\n"
+        )
+
+    system_prompt += (
+        "\n"
         "Anti-vagueness requirement (MUST FOLLOW):\n"
         "- Every positive claim must include: (a) a short quote from the user (<=12 words) OR a very specific described behavior, and (b) why that helps win rounds.\n"
         "- Every criticism must include: (a) what was missing, (b) a CONCRETE EXAMPLE OF what it should have looked like, and (c) one concrete next-step drill.\n"
@@ -571,7 +609,7 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
         '  "content_structure_score": <number 0-10 (integer)>,\n'
         '  "content_structure_feedback": "<2 sentence string with specific examples>",\n'
         '  "engagement_score": <number 0-10 (integer)>,\n'
-        '  "engagement_feedback": "<2 sentence string OR exact text if not scorable>",\n'
+        f'  "engagement_feedback": "<2 sentence string - for {"opening speeches, discuss correctness of side, comparativeness, and substantiveness" if is_opening_speech else "rebuttals, discuss clash, refutation, and comparative analysis"}>",\n'
         '  "strategy_score": <number 0-10 (integer)>,\n'
         '  "strategy_feedback": "<2 sentence string with specific examples>",\n'
         '  "weakness_type": "<one of: rebuttal, structure, weighing, evidence, strategy>"\n'
