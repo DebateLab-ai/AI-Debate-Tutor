@@ -6,6 +6,7 @@ import LandingPage from './LandingPage'
 import App from './App'
 import DrillPage from './DrillPage'
 import DrillsPage from './DrillsPage'
+import MailingListPage from './MailingListPage'
 import ErrorBoundary from './ErrorBoundary'
 import './index.css'
 
@@ -18,6 +19,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/debate" element={<App />} />
           <Route path="/drills" element={<DrillsPage />} />
           <Route path="/drill-rebuttal" element={<DrillPage />} />
+          <Route path="/mailing-list" element={<MailingListPage />} />
         </Routes>
       </BrowserRouter>
     </ErrorBoundary>
