@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { SEO } from './SEO'
 
 const DRILL_TYPES = [
   { value: 'rebuttal', label: 'Rebuttal', description: 'Practice directly refuting opponent arguments' },
@@ -56,7 +57,14 @@ function DrillsPage() {
   }
 
   return (
-    <div className="app drills-selection-mode">
+    <>
+      <SEO
+        title="Practice Drills - DebateLab"
+        description="Practice specific debate skills with targeted drills. Choose from rebuttal, structure, weighing, evidence, and strategy drills to improve your argumentation."
+        keywords="debate drills, debate practice, rebuttal practice, debate structure, argumentation skills, debate training"
+        url="https://debatelab.ai/drills"
+      />
+      <div className="app drills-selection-mode">
       <button
         className="return-to-landing"
         onClick={() => navigate('/')}
@@ -189,6 +197,7 @@ function DrillsPage() {
         </div>
       </div>
     </div>
+    </>
   )
 }
 

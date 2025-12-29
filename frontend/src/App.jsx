@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast, ToastContainer } from './Toast'
+import { SEO } from './SEO'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -606,7 +607,14 @@ function App() {
   // Setup screen
   if (!setupComplete) {
     return (
-      <div className="app setup-mode">
+      <>
+        <SEO
+          title="Start a Debate - DebateLab"
+          description="Start a new debate with an AI opponent. Practice your argumentation skills with instant feedback and personalized coaching."
+          keywords="start debate, debate practice, AI debate opponent, debate training"
+          url="https://debatelab.ai/debate"
+        />
+        <div className="app setup-mode">
         <Link to="/" className="return-to-landing" title="Return to home">
           ← Home
         </Link>
@@ -739,12 +747,20 @@ function App() {
           </div>
         </div>
       </div>
+      </>
     )
   }
 
   // Debate screen
   return (
-    <div className="app debate-mode">
+    <>
+      <SEO
+        title={debate ? `${topic} - DebateLab` : "Debate - DebateLab"}
+        description={`Debating: ${topic}. Practice your argumentation skills with an AI opponent and get instant feedback.`}
+        keywords={`debate, ${topic}, argumentation, debate practice`}
+        url={`https://debatelab.ai/debate${debateId ? `?id=${debateId}` : ''}`}
+      />
+      <div className="app debate-mode">
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
       <Link to="/" className="return-to-landing" onClick={resetDebate} title="Return to home">
         ← Home
@@ -961,6 +977,7 @@ function App() {
         )}
       </main>
     </div>
+    </>
   )
 }
 

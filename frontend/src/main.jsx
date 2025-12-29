@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { HelmetProvider } from 'react-helmet-async'
 import { Analytics } from '@vercel/analytics/react'
 import LandingPage from './LandingPage'
 import App from './App'
@@ -12,18 +13,20 @@ import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <ErrorBoundary>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<LandingPage />} />
-          <Route path="/debate" element={<App />} />
-          <Route path="/drills" element={<DrillsPage />} />
-          <Route path="/drill-rebuttal" element={<DrillPage />} />
-          <Route path="/mailing-list" element={<MailingListPage />} />
-        </Routes>
-      </BrowserRouter>
-    </ErrorBoundary>
-    <Analytics />
+    <HelmetProvider>
+      <ErrorBoundary>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/debate" element={<App />} />
+            <Route path="/drills" element={<DrillsPage />} />
+            <Route path="/drill-rebuttal" element={<DrillPage />} />
+            <Route path="/mailing-list" element={<MailingListPage />} />
+          </Routes>
+        </BrowserRouter>
+      </ErrorBoundary>
+      <Analytics />
+    </HelmetProvider>
   </React.StrictMode>,
 )
 

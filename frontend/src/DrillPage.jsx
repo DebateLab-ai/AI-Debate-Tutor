@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { useToast, ToastContainer } from './Toast'
+import { SEO } from './SEO'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -259,16 +260,37 @@ function DrillPage() {
 
   if (loading && !currentClaim) {
     return (
-      <div className="app drill-mode">
-        <div className="drill-container">
-          <p>Loading drill...</p>
+      <>
+        <SEO
+          title="Loading Drill - DebateLab"
+          description="Loading debate drill..."
+          url="https://debatelab.ai/drill-rebuttal"
+        />
+        <div className="app drill-mode">
+          <div className="drill-container">
+            <p>Loading drill...</p>
+          </div>
         </div>
-      </div>
+      </>
     )
   }
 
+  const drillTitle = weaknessType 
+    ? `${weaknessType.charAt(0).toUpperCase() + weaknessType.slice(1)} Drill - DebateLab`
+    : 'Rebuttal Drill - DebateLab'
+  const drillDescription = weaknessType
+    ? `Practice ${weaknessType} skills with targeted debate drills. Get instant feedback on your argumentation and improve your debate performance.`
+    : 'Practice rebuttal skills with targeted debate drills. Get instant feedback on your argumentation and improve your debate performance.'
+
   return (
-    <div className="app drill-mode">
+    <>
+      <SEO
+        title={drillTitle}
+        description={drillDescription}
+        keywords={`${weaknessType || 'rebuttal'} drill, debate practice, argumentation skills, debate training`}
+        url={`https://debatelab.ai/drill-rebuttal?motion=${encodeURIComponent(motion)}&position=${position}&weakness=${weaknessType || 'rebuttal'}`}
+      />
+      <div className="app drill-mode">
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
       <button
         className="return-to-landing"
@@ -418,6 +440,7 @@ function DrillPage() {
         </div>
       </div>
     </div>
+    </>
   )
 }
 

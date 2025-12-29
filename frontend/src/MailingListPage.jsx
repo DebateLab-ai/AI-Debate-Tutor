@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { SEO } from './SEO'
 
 const CONVERTKIT_API_KEY = import.meta.env.VITE_CONVERTKIT_API_KEY
 const CONVERTKIT_FORM_ID = '8910819'
@@ -98,7 +99,15 @@ function MailingListPage() {
   }
 
   return (
-    <div className="app mailing-list-mode">
+    <>
+      <SEO
+        title="Join Our Mailing List - DebateLab"
+        description="Subscribe to DebateLab's mailing list to get notified about new features, debate tips, updates, and exclusive content."
+        keywords="debate newsletter, debate updates, debate tips, debate community"
+        url="https://debatelab.ai/mailing-list"
+        noindex={true}
+      />
+      <div className="app mailing-list-mode">
       <button 
         className="return-to-landing" 
         onClick={() => navigate('/')}
@@ -175,6 +184,7 @@ function MailingListPage() {
         </div>
       </div>
     </div>
+    </>
   )
 }
 
