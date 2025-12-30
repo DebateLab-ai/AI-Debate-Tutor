@@ -266,6 +266,29 @@ class DrillRebuttalScore(BaseModel):
     next_claim: str  # Next claim to practice with
     next_claim_position: Literal["for", "against"]
 
+# Evidence Drill Schemas
+class EvidenceClaimResponse(BaseModel):
+    claim: str  # The claim the user needs to provide evidence for (5-6 sentences, on their side)
+    claim_position: Literal["for", "against"]  # Same position as user
+
+class EvidenceSubmit(BaseModel):
+    motion: str = Field(min_length=1, max_length=500)
+    claim: str = Field(min_length=1, max_length=2000)
+    claim_position: Literal["for", "against"]
+    evidence: str = Field(min_length=1, max_length=5000)  # User's evidence for the claim
+
+class EvidenceMetrics(BaseModel):
+    authenticity: float  # 0-10: Is it a real, verifiable example?
+    recognition: float   # 0-10: Is it well-known? (NYT front page test)
+    strategic_support: float  # 0-10: Does it meaningfully support the claim?
+
+class EvidenceScore(BaseModel):
+    overall_score: float  # 0-10
+    metrics: EvidenceMetrics
+    feedback: str  # Specific feedback on the evidence quality
+    next_claim: str  # Next claim to practice with
+    next_claim_position: Literal["for", "against"]
+
 # ---------- Helpers ----------
 def second_speaker_for_round(starter: Speaker) -> Speaker:
     return "assistant" if starter == "user" else "user"
@@ -1188,6 +1211,155 @@ def submit_rebuttal_drill(body: DrillRebuttalSubmit):
             refutation_quality=score_result["refutation_quality"],
             evidence_examples=score_result["evidence_examples"],
             impact_comparison=score_result["impact_comparison"],
+        ),
+        feedback=score_result["feedback"],
+        next_claim=next_claim,
+        next_claim_position=body.claim_position,
+    )
+
+
+# ---------- Evidence Drill System ----------
+def generate_evidence_claim(motion: str, claim_position: Literal["for", "against"]) -> str:
+    """Generate a claim that needs evidence (5-6 sentences, on the user's side)."""
+    if not client:
+        return f"Sample claim {claim_position} the motion: {motion}"
+
+    position_text = "FOR" if claim_position == "for" else "AGAINST"
+
+    system_prompt = (
+        "You are a debate argument generator. Generate a well-developed claim for evidence practice.\n\n"
+        "REQUIREMENTS:\n"
+        "- 5-6 sentences that present a complete argument\n"
+        "- Build from FIRST PRINCIPLES: state premise, derive conclusions step-by-step\n"
+        "- Each logical step must FOLLOW NECESSARILY from the previous one\n"
+        "- Make a claim that REQUIRES concrete evidence to be convincing\n"
+        "- DO NOT include examples yourself - leave room for the student to provide evidence\n"
+        "- Focus on mechanisms and causal chains that need real-world validation\n\n"
+        "The claim should be strong enough that with good evidence it would be persuasive,\n"
+        "but incomplete without specific, well-known examples to support it.\n\n"
+        "Do NOT include labels like 'Claim:', just output the argument directly."
+    )
+
+    user_prompt = f"Motion: {motion}\n\nGenerate a claim {position_text} this motion that requires evidence to be persuasive."
+
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.7,
+            max_tokens=200,
+        )
+        return resp.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"[EVIDENCE DRILL] Claim generation failed: {e}")
+        return f"Sample claim {claim_position} the motion: {motion}"
+
+
+def score_evidence(motion: str, claim: str, evidence: str) -> dict:
+    """Score evidence based on authenticity, recognition (NYT test), and strategic support."""
+    if not client:
+        raise HTTPException(503, "Evidence scoring requires OpenAI API key")
+
+    system_prompt = (
+        "You are a debate coach evaluating a student's evidence for a claim.\n\n"
+        "Evaluate the evidence on three criteria (0-10 each):\n\n"
+        "1. AUTHENTICITY (0-10): Is this a REAL example?\n"
+        "   - 9-10: Clearly real, verifiable, specific details\n"
+        "   - 7-8: Likely real, plausible details\n"
+        "   - 5-6: Could be real but vague or generic\n"
+        "   - 3-4: Questionable, lacks specificity\n"
+        "   - 0-2: Clearly fabricated, impossible, or completely vague\n\n"
+        "2. RECOGNITION (0-10): NYT Front Page Test - Is this well-known?\n"
+        "   - 9-10: Major household name (Amazon, COVID-19, iPhone, World War II)\n"
+        "   - 7-8: Well-known to educated audiences (major tech companies, famous historical events)\n"
+        "   - 5-6: Moderately known (smaller companies, less famous events)\n"
+        "   - 3-4: Obscure (local events, unknown companies, niche topics)\n"
+        "   - 0-2: Completely unknown or cited as 'research by X' without specifics\n"
+        "   CRITICAL: HEAVILY PENALIZE citations like 'a study by X' or 'research shows' - these fail the NYT test\n\n"
+        "3. STRATEGIC SUPPORT (0-10): Does it meaningfully support the claim?\n"
+        "   - 9-10: Directly proves the mechanism, perfect fit\n"
+        "   - 7-8: Strongly supports the claim, clear connection\n"
+        "   - 5-6: Somewhat relevant, loose connection\n"
+        "   - 3-4: Tangentially related, weak connection\n"
+        "   - 0-2: Irrelevant or contradicts the claim\n\n"
+        "Provide:\n"
+        "- overall_score: Average of the three metrics (0-10)\n"
+        "- authenticity_score, recognition_score, strategic_support_score (0-10 each)\n"
+        "- feedback: 2-3 sentences with:\n"
+        "  * ONE specific strength (with quote if applicable)\n"
+        "  * ONE concrete improvement (with example of what they could have used instead)\n\n"
+        "Return ONLY a JSON object with keys: overall_score, authenticity_score, recognition_score, strategic_support_score, feedback\n"
+        "Do not include any additional text outside the JSON."
+    )
+
+    user_prompt = (
+        f"Motion: {motion}\n\n"
+        f"Claim: {claim}\n\n"
+        f"Student's Evidence: {evidence}\n\n"
+        f"Evaluate this evidence."
+    )
+
+    try:
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.3,
+            response_format={"type": "json_object"},
+        )
+        result = json.loads(resp.choices[0].message.content.strip())
+
+        # Extract scores with defaults
+        overall = float(result.get("overall_score", 0))
+        authenticity = float(result.get("authenticity_score", 0))
+        recognition = float(result.get("recognition_score", 0))
+        strategic = float(result.get("strategic_support_score", 0))
+        feedback = result.get("feedback", "Good attempt. Keep practicing!")
+
+        return {
+            "overall_score": round(overall, 1),
+            "authenticity": round(authenticity, 1),
+            "recognition": round(recognition, 1),
+            "strategic_support": round(strategic, 1),
+            "feedback": feedback,
+        }
+    except Exception as e:
+        print(f"[ERROR] Evidence scoring failed: {e}")
+        raise HTTPException(502, "Unable to score evidence. Please try again.")
+
+
+@app.post("/v1/drills/evidence/start", response_model=EvidenceClaimResponse)
+def start_evidence_drill(body: DrillStartRequest):
+    """Start an evidence drill - generates a claim on the user's side that needs evidence."""
+    # Generate claim on the SAME side as the user's position (not opposite)
+    claim = generate_evidence_claim(body.motion, body.user_position)
+
+    return EvidenceClaimResponse(
+        claim=claim,
+        claim_position=body.user_position
+    )
+
+
+@app.post("/v1/drills/evidence/submit", response_model=EvidenceScore)
+def submit_evidence_drill(body: EvidenceSubmit):
+    """Submit evidence and get scored + next claim."""
+    # Score the evidence
+    score_result = score_evidence(body.motion, body.claim, body.evidence)
+
+    # Generate next claim (same position - user keeps providing evidence for claims on their side)
+    next_claim = generate_evidence_claim(body.motion, body.claim_position)
+
+    return EvidenceScore(
+        overall_score=score_result["overall_score"],
+        metrics=EvidenceMetrics(
+            authenticity=score_result["authenticity"],
+            recognition=score_result["recognition"],
+            strategic_support=score_result["strategic_support"],
         ),
         feedback=score_result["feedback"],
         next_claim=next_claim,
