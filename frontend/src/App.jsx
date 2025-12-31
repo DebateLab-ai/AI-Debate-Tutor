@@ -148,25 +148,35 @@ function App() {
   const [mode, setMode] = useState('casual') // 'parliamentary' or 'casual'
   const [setupComplete, setSetupComplete] = useState(false)
 
-  // Load debate from URL if ID is present
+  // Handle URL routing - load debate from URL or sync URL to state
   useEffect(() => {
     const urlId = params.id
-    // Only load debate from URL if we have an ID and we're not in the middle of resetting
-    if (urlId && urlId !== debateId && setupComplete) {
-      setDebateId(urlId)
-      fetchDebate(urlId)
-    } else if (!urlId && !setupComplete && location.pathname !== '/debate/new') {
-      // Redirect to /debate/new if we're on the form but URL doesn't match
+    const currentPath = location.pathname
+
+    // Case 1: URL has an ID - load that debate
+    if (urlId) {
+      if (urlId !== debateId) {
+        // URL has different ID than current state - load from URL
+        setDebateId(urlId)
+        setSetupComplete(true)
+        fetchDebate(urlId)
+      }
+      // If URL ID matches debateId, we're already on the right debate - do nothing
+      return
+    }
+
+    // Case 2: No ID in URL but we have an active debate - sync URL
+    if (debateId && setupComplete && currentPath !== `/debate/${debateId}`) {
+      navigate(`/debate/${debateId}`, { replace: true })
+      return
+    }
+
+    // Case 3: No ID in URL and no active debate - show form
+    if (!debateId && !setupComplete && currentPath !== '/debate/new') {
       navigate('/debate/new', { replace: true })
+      return
     }
   }, [params.id, debateId, setupComplete, location.pathname, navigate])
-
-  // Sync URL when debate starts
-  useEffect(() => {
-    if (setupComplete && debateId && location.pathname !== `/debate/${debateId}`) {
-      navigate(`/debate/${debateId}`, { replace: true })
-    }
-  }, [setupComplete, debateId, location.pathname, navigate])
 
   // Timer state
   const [timerEnabled, setTimerEnabled] = useState(false)
@@ -243,12 +253,8 @@ function App() {
       setScoring(false)
     }
   }
-  useEffect(() => {
-    if (debateId) {
-      // Initial fetch when debate is created
-      fetchDebate()
-    }
-  }, [debateId])
+  // Note: Removed the automatic fetchDebate on debateId change
+  // It's now handled by the URL routing effect above to prevent duplicate fetches
 
   // Timer countdown effect
   useEffect(() => {
