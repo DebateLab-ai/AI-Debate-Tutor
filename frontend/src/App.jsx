@@ -1007,7 +1007,9 @@ function App() {
             <div className="empty-state">
               <p>
                 {debate?.next_speaker === 'assistant'
-                  ? 'Waiting for AI to generate opening argument... (10-20 seconds)'
+                  ? debate?.mode === 'parliamentary'
+                    ? 'Waiting for AI to generate opening argument... (usually takes 10-20 seconds)'
+                    : 'Waiting for AI to generate opening argument...'
                   : 'Make your first argument!'}
               </p>
             </div>
@@ -1044,9 +1046,11 @@ function App() {
                   <span></span>
                   <span></span>
                 </div>
-                <div style={{ marginTop: '8px', fontSize: '12px', color: '#8b92a7' }}>
-                  Generating response... (usually takes 10-20 seconds)
-                </div>
+                {debate?.mode === 'parliamentary' && (
+                  <div style={{ marginTop: '8px', fontSize: '12px', color: '#8b92a7' }}>
+                    Generating response... (usually takes 10-20 seconds)
+                  </div>
+                )}
               </div>
             </div>
           )}
