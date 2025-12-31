@@ -362,7 +362,11 @@ HARD RULE - OPPONENT IDENTIFICATION:
 
 REQUIREMENTS:
 1. MATCH DEPTH: If they made 3 developed points, you make 3-4.
-2. ACCURACY: Only address what they ACTUALLY said. Never invent arguments.
+2. ACCURACY (CRITICAL - MUST FOLLOW): Only address what they ACTUALLY said. Never invent arguments.
+   - If you mention something they said, you MUST be able to quote or point to the exact words from their speech
+   - If they didn't mention X, do NOT say "they claim X" or "they argue X" or respond to X
+   - Review their speech carefully - only respond to what is actually written there
+   - When rebutting, quote or paraphrase their actual words explicitly
 3. GROUP BY THEME: Organize rebuttals by big-picture themes, not point-by-point.
 4. FIRST PRINCIPLES: Build each response like a mathematical proof - state premise, derive conclusions step-by-step where each step FOLLOWS NECESSARILY from the previous.
 5. WELL-KNOWN EXAMPLES ONLY: Use Amazon, COVID-19, major events laypeople know.

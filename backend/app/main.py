@@ -2,6 +2,7 @@
 # uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 import os
+import re
 from datetime import datetime
 from typing import Literal, Dict, List, Optional
 import json
@@ -406,7 +407,14 @@ def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
     
     if debate.mode == "casual":
         # Casual mode: more conversational, no RAG, less formal structure, optimized for speed
-        sys = """Sharp and confrontational. Match their depth. Only address what they ACTUALLY said.
+        sys = """Sharp and confrontational. Match their depth.
+
+CRITICAL RULE - ACCURACY (MUST FOLLOW):
+- ONLY address arguments they ACTUALLY made in their message
+- NEVER invent, assume, or respond to arguments they did NOT make
+- If you want to address a point, you MUST be able to quote or reference the exact words they used
+- If they didn't mention something, DO NOT act like they did
+- When rebutting, explicitly reference what they said: "The proposition claims X..." where X is their actual words
 
 HARD RULE - OPPONENT IDENTIFICATION:
 - NEVER say "my opponent" or "the opponent"
@@ -416,10 +424,18 @@ HARD RULE - OPPONENT IDENTIFICATION:
 
 Build from FIRST PRINCIPLES: state premise, derive each step logically where each step FOLLOWS NECESSARILY from the previous.
 Use ONLY well-known examples (Amazon, iPhone, COVID-19). NEVER "research by X showed Y".
-Always weigh. No filler. Vary your language."""
+Always weigh. No filler. Vary your language. Do NOT include tags like "[Round X · ASSISTANT]" in your response."""
     else:
         # Parliamentary mode: formal debate structure
         sys = """You are a competitive debater. Win through sharp logic, not aggression.
+
+CRITICAL RULE - ACCURACY (MUST FOLLOW):
+- ONLY address arguments they ACTUALLY made in their messages
+- NEVER invent, assume, or respond to arguments they did NOT make
+- If you want to address a point, you MUST be able to quote or reference the exact words they used
+- If they didn't mention something, DO NOT act like they did
+- When rebutting, explicitly reference what they said with quotes or specific paraphrases
+- Review the conversation history carefully - only respond to what is actually there
 
 HARD RULE - OPPONENT IDENTIFICATION:
 - NEVER say "my opponent" or "the opponent"
@@ -436,7 +452,7 @@ REQUIREMENTS:
 - Use ONLY well-known examples (Amazon, iPhone, COVID-19, major events). NEVER cite "research by X showed Y"
 - Weigh constantly using probability/magnitude/timeframe
 - Signpost clearly but vary language naturally
-- Sound like spoken debate, not essay. No filler."""
+- Sound like spoken debate, not essay. No filler. Do NOT include tags like "[Round X · ASSISTANT]" in your response."""
     convo = []
     for m in messages:
         role = "user" if m.speaker == "user" else "assistant"
@@ -448,24 +464,40 @@ REQUIREMENTS:
     if opponent_messages:
         # Rebuttal situation
         if debate.mode == "casual":
-            # Get the last user message to reference their specific points
+            # Get the last user message to reference their specific points - include FULL message
             last_user_msg = opponent_messages[-1].content if opponent_messages else ""
             prompt_now = f"""Topic: {topic_context}
 Round {debate.current_round} of {debate.num_rounds}
 
-They said: "{last_user_msg[:200]}{'...' if len(last_user_msg) > 200 else ''}"
+CRITICAL: Here is what they ACTUALLY said (respond ONLY to this, nothing else):
+"{last_user_msg}"
+
+HARD RULE - ACCURACY:
+- ONLY rebut arguments that appear in the text above
+- If you mention something they said, you MUST be able to point to where they said it
+- NEVER respond to arguments they did NOT make
+- If they didn't mention X, do NOT say "they claim X" or "they argue X"
+- When rebutting, quote or paraphrase their actual words
 
 Respond (max 2 paragraphs). Start with roadmap. Build from FIRST PRINCIPLES: identify their premise → show why it fails step-by-step (each step follows necessarily) → establish your premise → derive conclusion. Well-known examples only."""
         else:
+            # Include full opponent message for reference
+            last_opponent_msg = opponent_messages[-1].content if opponent_messages else ""
             prompt_now = f"""Motion: {topic_context}
 Round {debate.current_round} of {debate.num_rounds}
+
+CRITICAL: Here is what the opponent ACTUALLY said (respond ONLY to this):
+"{last_opponent_msg}"
 
 Deliver a rebuttal speech that:
 1. Starts with roadmap (vary language naturally)
 2. Tears down opponent's key arguments (address strongest first):
+   - ONLY rebut arguments that appear in the text above
    - Build rebuttals from FIRST PRINCIPLES: identify their premise, show step-by-step why the logical chain breaks down
+   - When rebutting, quote or paraphrase their actual words - do NOT invent what they said
    - Negate first (show why claim is NOT true), then mitigate (show it's smaller), then concede+outweigh
    - Use ONLY well-known examples. NEVER cite "research by X showed Y"
+   - HARD RULE: If they didn't mention X, do NOT say "they claim X" or respond to X
 3. HARD RULE: Presents new arguments proportional to opponent's count:
    - Count their arguments, then make at least ONE new argument, but NO MORE than they made
    - If they made 1 arg → you make 1 new arg
@@ -473,7 +505,7 @@ Deliver a rebuttal speech that:
    - If they made 3 args → you make 1-3 new args
 4. Weighs comparatively throughout
 
-Sharp, precise, rigorous."""
+Sharp, precise, rigorous. Only respond to what they actually said."""
     else:
         # Opening speech
         if debate.mode == "casual":
@@ -510,7 +542,10 @@ Compelling, rigorous, well-structured."""
                 temperature=0.7,  # Higher temp since no RAG context (matches response.py adaptive logic)
                 max_tokens=max_tokens,
             )
-            return resp.choices[0].message.content.strip()
+            ai_response = resp.choices[0].message.content.strip()
+            # Strip any [Round X · ASSISTANT] or [Round X · USER] tags that the AI might have included
+            ai_response = re.sub(r'\[Round \d+ · (ASSISTANT|USER)\]\s*', '', ai_response, flags=re.IGNORECASE)
+            return ai_response.strip()
         except Exception as e:
             print(f"[ERROR] OpenAI API call failed: {type(e).__name__}: {e}")
             # fall back to stub
