@@ -18,6 +18,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<LandingPage />} />
+            <Route path="/debate/new" element={<App />} />
+            <Route path="/debate/:id" element={<App />} />
             <Route path="/debate" element={<App />} />
             <Route path="/drills" element={<DrillsPage />} />
             <Route path="/drill-rebuttal" element={<DrillPage />} />

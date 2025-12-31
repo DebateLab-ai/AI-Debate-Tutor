@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate, useLocation, useParams } from 'react-router-dom'
 import { useToast, ToastContainer } from './Toast'
 import { SEO } from './SEO'
 
@@ -72,7 +72,62 @@ const DEBATE_TOPICS = [
   'Markets should determine resource allocation',
 ]
 
+// Topic categories with 10 prompts each
+const TOPIC_CATEGORIES = {
+  Politics: [
+    'Mandatory voting in democratic elections',
+    'Term limits should be imposed on all elected officials',
+    'The abolition of the electoral college',
+    'Political parties should be publicly funded',
+    'Lowering the voting age to 16',
+    'Gerrymandering should be illegal',
+    'Proportional representation over first-past-the-post',
+    'Campaign finance should be strictly limited',
+    'The direct election of Supreme Court justices',
+    'Political lobbying should be banned',
+  ],
+  Economics: [
+    'A universal basic income',
+    'The minimum wage should be tied to inflation',
+    'The abolition of private property',
+    'Free trade agreements harm developing nations',
+    'Progressive taxation over flat taxation',
+    'Student loan debt should be forgiven',
+    'The nationalization of key industries',
+    'Cryptocurrency should replace fiat currency',
+    'A maximum wage cap',
+    'Economic growth should be prioritized over environmental protection',
+  ],
+  Social: [
+    'Affirmative action in college admissions',
+    'Social media platforms should be regulated like public utilities',
+    'The decriminalization of all drugs',
+    'Healthcare is a human right',
+    'Mandatory diversity training in workplaces',
+    'Cancel culture is harmful to free speech',
+    'The abolition of the death penalty',
+    'Gender-neutral bathrooms should be mandatory',
+    'Reparations for historical injustices',
+    'Social media does more harm than good',
+  ],
+  Technology: [
+    'A ban on facial recognition technology',
+    'AI should be regulated by international law',
+    'Net neutrality',
+    'Social media companies should be broken up',
+    'The right to digital privacy over national security',
+    'Automation should be taxed to fund retraining programs',
+    'Open-source software over proprietary software',
+    'Tech companies should be held liable for harmful content',
+    'A universal basic income funded by tech taxes',
+    'Artificial intelligence will do more harm than good',
+  ],
+}
+
 function App() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const params = useParams()
   const toast = useToast()
   const [debateId, setDebateId] = useState(null)
   const [debate, setDebate] = useState(null)
@@ -86,10 +141,32 @@ function App() {
   // Landing/Setup state
   const [showLanding, setShowLanding] = useState(false) // Don't show landing in debate route
   const [topic, setTopic] = useState('Social media does more harm than good')
+  const [topicMode, setTopicMode] = useState('custom') // 'custom' or 'category'
+  const [selectedCategory, setSelectedCategory] = useState(null)
   const [position, setPosition] = useState('for') // 'for' or 'against'
   const [numRounds, setNumRounds] = useState(2)
   const [mode, setMode] = useState('casual') // 'parliamentary' or 'casual'
   const [setupComplete, setSetupComplete] = useState(false)
+
+  // Load debate from URL if ID is present
+  useEffect(() => {
+    const urlId = params.id
+    if (urlId && urlId !== debateId) {
+      setDebateId(urlId)
+      setSetupComplete(true)
+      fetchDebate(urlId)
+    } else if (!urlId && !setupComplete && location.pathname !== '/debate/new') {
+      // Redirect to /debate/new if we're on the form but URL doesn't match
+      navigate('/debate/new', { replace: true })
+    }
+  }, [params.id, debateId, setupComplete, location.pathname, navigate])
+
+  // Sync URL when debate starts
+  useEffect(() => {
+    if (setupComplete && debateId && location.pathname !== `/debate/${debateId}`) {
+      navigate(`/debate/${debateId}`, { replace: true })
+    }
+  }, [setupComplete, debateId, location.pathname, navigate])
 
   // Timer state
   const [timerEnabled, setTimerEnabled] = useState(false)
@@ -245,6 +322,11 @@ function App() {
   }
 
   const startDebate = async () => {
+    if (topicMode === 'category' && !selectedCategory) {
+      toast.error('Please select a category to generate a topic')
+      return
+    }
+
     if (!topic.trim()) {
       toast.error('Please enter a debate topic')
       return
@@ -591,7 +673,10 @@ function App() {
     setMediaRecorder(null)
     setMode('casual')
     setTopic('Social media does more harm than good')
+    setTopicMode('custom')
+    setSelectedCategory(null)
     setNumRounds(2)
+    navigate('/debate/new', { replace: true })
   }
 
   const getScoreGrade = (score) => {
@@ -625,18 +710,135 @@ function App() {
             
             <div className="form-group">
               <label>Debate Topic</label>
-              <input
-                type="text"
-                value={topic}
-                onChange={(e) => setTopic(e.target.value)}
-                placeholder="e.g., This House opposes the continued use of international military aid"
-                className="input-large"
-                maxLength={500}
-                onKeyPress={(e) => e.key === 'Enter' && startDebate()}
-              />
-              <small style={{ display: 'block', marginTop: '6px', color: '#666', fontSize: '0.875rem' }}>
-                💡 You can edit the sample topic above or type your own
-              </small>
+              <div className="topic-mode-selector" style={{ 
+                display: 'flex', 
+                gap: '12px', 
+                marginBottom: '16px' 
+              }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTopicMode('custom')
+                    setSelectedCategory(null)
+                  }}
+                  className={topicMode === 'custom' ? 'position-btn active' : 'position-btn'}
+                  style={{ flex: 1 }}
+                >
+                  Custom Topic
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTopicMode('category')}
+                  className={topicMode === 'category' ? 'position-btn active' : 'position-btn'}
+                  style={{ flex: 1 }}
+                >
+                  Generate Topic
+                </button>
+              </div>
+
+              {topicMode === 'custom' ? (
+                <>
+                  <input
+                    type="text"
+                    value={topic}
+                    onChange={(e) => setTopic(e.target.value)}
+                    placeholder="e.g., This House opposes the continued use of international military aid"
+                    className="input-large"
+                    maxLength={500}
+                    onKeyPress={(e) => e.key === 'Enter' && startDebate()}
+                  />
+                  <small style={{ display: 'block', marginTop: '6px', color: '#666', fontSize: '0.875rem' }}>
+                    💡 You can edit the sample topic above or type your own
+                  </small>
+                </>
+              ) : (
+                <>
+                  <div className="category-buttons" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px', marginBottom: '16px' }}>
+                    {Object.keys(TOPIC_CATEGORIES).map((category) => {
+                      const categoryColors = {
+                        Politics: { bg: 'rgba(239, 68, 68, 0.15)', border: 'rgba(239, 68, 68, 0.4)', active: 'rgba(239, 68, 68, 0.9)', text: '#ef4444' },
+                        Economics: { bg: 'rgba(234, 179, 8, 0.15)', border: 'rgba(234, 179, 8, 0.4)', active: 'rgba(234, 179, 8, 0.9)', text: '#eab308' },
+                        Social: { bg: 'rgba(34, 197, 94, 0.15)', border: 'rgba(34, 197, 94, 0.4)', active: 'rgba(34, 197, 94, 0.9)', text: '#22c55e' },
+                        Technology: { bg: 'rgba(59, 130, 246, 0.15)', border: 'rgba(59, 130, 246, 0.4)', active: 'rgba(59, 130, 246, 0.9)', text: '#3b82f6' },
+                      }
+                      const colors = categoryColors[category] || categoryColors.Politics
+                      const isActive = selectedCategory === category
+                      
+                      return (
+                        <button
+                          key={category}
+                          type="button"
+                          onClick={() => {
+                            setSelectedCategory(category)
+                            // Generate random topic from category
+                            const topics = TOPIC_CATEGORIES[category]
+                            const randomTopic = topics[Math.floor(Math.random() * topics.length)]
+                            setTopic(randomTopic)
+                          }}
+                          style={{
+                            padding: '16px',
+                            background: isActive ? colors.active : colors.bg,
+                            border: `2px solid ${isActive ? colors.active : colors.border}`,
+                            borderRadius: '12px',
+                            color: isActive ? 'white' : colors.text,
+                            fontSize: '16px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                            textAlign: 'center',
+                          }}
+                        >
+                          {category}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {selectedCategory && (
+                    <div style={{
+                      padding: '16px',
+                      background: 'var(--input-bg)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '12px',
+                      marginBottom: '12px'
+                    }}>
+                      <div style={{ fontSize: '14px', color: '#8b92a7', marginBottom: '8px' }}>
+                        Selected: <strong style={{ color: 'var(--accent)' }}>{selectedCategory}</strong>
+                      </div>
+                      <div style={{ 
+                        fontSize: '16px', 
+                        color: '#e8eaed',
+                        lineHeight: '1.5',
+                        marginBottom: '12px',
+                        padding: '12px',
+                        background: 'rgba(255, 255, 255, 0.03)',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(255, 255, 255, 0.05)'
+                      }}>
+                        {topic}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const topics = TOPIC_CATEGORIES[selectedCategory]
+                          const randomTopic = topics[Math.floor(Math.random() * topics.length)]
+                          setTopic(randomTopic)
+                        }}
+                        className="btn-secondary"
+                        style={{ 
+                          fontSize: '14px', 
+                          padding: '8px 16px',
+                          width: '100%'
+                        }}
+                      >
+                        🔄 Generate Another Topic
+                      </button>
+                    </div>
+                  )}
+                  <small style={{ display: 'block', marginTop: '8px', color: '#8b92a7', fontSize: '0.875rem' }}>
+                    💡 Select a category to generate a random debate topic
+                  </small>
+                </>
+              )}
             </div>
 
             <div className="form-group">
@@ -740,7 +942,7 @@ function App() {
             <button
               className="btn-primary btn-large"
               onClick={startDebate}
-              disabled={loading || !topic.trim()}
+              disabled={loading || !topic.trim() || (topicMode === 'category' && !selectedCategory)}
             >
               {loading ? 'Starting...' : 'Start Debate'}
             </button>
