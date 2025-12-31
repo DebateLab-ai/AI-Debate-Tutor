@@ -151,9 +151,9 @@ function App() {
   // Load debate from URL if ID is present
   useEffect(() => {
     const urlId = params.id
-    if (urlId && urlId !== debateId) {
+    // Only load debate from URL if we have an ID and we're not in the middle of resetting
+    if (urlId && urlId !== debateId && setupComplete) {
       setDebateId(urlId)
-      setSetupComplete(true)
       fetchDebate(urlId)
     } else if (!urlId && !setupComplete && location.pathname !== '/debate/new') {
       // Redirect to /debate/new if we're on the form but URL doesn't match
@@ -516,6 +516,17 @@ function App() {
             }
           }
         }
+        
+        // If debate not found, reset to new debate form
+        if (response.status === 404 || errorMessage.toLowerCase().includes('not found')) {
+          toast.error('Debate not found. Starting a new debate...')
+          setTimeout(() => {
+            resetDebate()
+          }, 1000)
+          setSubmitting(false)
+          return
+        }
+        
         toast.error(errorMessage)
         setSubmitting(false)
         return
@@ -660,6 +671,7 @@ function App() {
       stopRecording()
     }
     
+    // Clear all state
     setDebateId(null)
     setDebate(null)
     setMessages([])
@@ -676,6 +688,8 @@ function App() {
     setTopicMode('custom')
     setSelectedCategory(null)
     setNumRounds(2)
+    
+    // Navigate to new debate form
     navigate('/debate/new', { replace: true })
   }
 
