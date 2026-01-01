@@ -113,6 +113,9 @@ def startup_event():
     else:
         print(f"[RAG] Warning: Corpus directory not found: {corpus_dir}")
         print(f"[RAG] RAG system initialized but no documents loaded")
+    
+    print(f"[CLEANUP] Maximum debates limit: {MAX_DEBATES} (configure via MAX_DEBATES env var)")
+    print(f"[CLEANUP] Cleanup threshold: {CLEANUP_THRESHOLD} (cleanup runs when {MAX_DEBATES + CLEANUP_THRESHOLD} debates reached)")
 
 
 # ---------- In-memory "DB" ----------
@@ -139,6 +142,51 @@ class Message(BaseModel):
 DEBATES: Dict[UUID, Debate] = {}
 MESSAGES: Dict[UUID, List[Message]] = {}  # keyed by debate_id
 SCORES: Dict[UUID, "ScoreBreakdown"] = {}
+
+# Maximum number of debates to keep in memory (configurable via env var)
+MAX_DEBATES = int(os.getenv("MAX_DEBATES", "1000"))
+# Cleanup threshold: only cleanup when we're this many debates over the limit (buffer zone)
+CLEANUP_THRESHOLD = int(os.getenv("CLEANUP_THRESHOLD", "50"))  # Default: cleanup when 50 over limit
+
+def cleanup_old_debates(max_debates: int = MAX_DEBATES, threshold: int = CLEANUP_THRESHOLD):
+    """
+    Remove oldest debates to keep total count under max_debates.
+    Uses a buffer zone to avoid cleanup on every request.
+    Only runs cleanup when count exceeds (max_debates + threshold).
+    Removes from DEBATES, MESSAGES, and SCORES dictionaries.
+    """
+    current_count = len(DEBATES)
+    
+    # Only cleanup if we're significantly over the limit (buffer zone)
+    if current_count <= max_debates + threshold:
+        return 0  # No cleanup needed - still within buffer zone
+    
+    # Calculate how many to remove (bring it back to max_debates)
+    num_to_remove = current_count - max_debates
+    
+    # Sort debates by created_at (oldest first) - only when we need to cleanup
+    debates_sorted = sorted(
+        DEBATES.items(),
+        key=lambda x: x[1].created_at
+    )
+    
+    removed_count = 0
+    
+    # Remove oldest debates
+    for debate_id, _ in debates_sorted[:num_to_remove]:
+        # Remove from all dictionaries
+        if debate_id in DEBATES:
+            del DEBATES[debate_id]
+        if debate_id in MESSAGES:
+            del MESSAGES[debate_id]
+        if debate_id in SCORES:
+            del SCORES[debate_id]
+        removed_count += 1
+    
+    if removed_count > 0:
+        print(f"[CLEANUP] Removed {removed_count} old debates. Current count: {len(DEBATES)} (limit: {max_debates})")
+    
+    return removed_count
 
 # ---------- Schemas (I/O) ----------
 class DebateCreate(BaseModel):
@@ -325,12 +373,8 @@ def _append_message_and_advance(debate: Debate, speaker: Speaker, content: str) 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = None
 
-# Debug: Check all environment variables that start with OPENAI
-print(f"[OpenAI] Checking for API key...")
-print(f"[OpenAI] OPENAI_API_KEY exists: {bool(OPENAI_API_KEY)}")
+# Initialize OpenAI client
 if OPENAI_API_KEY:
-    print(f"[OpenAI] API Key length: {len(OPENAI_API_KEY)}")
-    print(f"[OpenAI] API Key starts with: {OPENAI_API_KEY[:10]}...")
     try:
         from openai import OpenAI  # OpenAI Python SDK ≥ 1.0
         client = OpenAI(api_key=OPENAI_API_KEY)
@@ -341,8 +385,8 @@ if OPENAI_API_KEY:
         import traceback
         traceback.print_exc()
 else:
-    print("[OpenAI] No API key found in environment variables")
-    print(f"[OpenAI] All env vars with 'OPENAI' in name: {[k for k in os.environ.keys() if 'OPENAI' in k.upper()]}")
+    client = None
+    print("[OpenAI] No API key found - AI features will not work")
 
 def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
     """
@@ -851,6 +895,10 @@ def create_debate(body: DebateCreate):
     )
     DEBATES[did] = debate
     MESSAGES[did] = []
+    
+    # Cleanup old debates to prevent memory overflow
+    cleanup_old_debates()
+    
     return debate
 
 # ---------- 2) Submit a turn ----------
@@ -1405,4 +1453,10 @@ def submit_evidence_drill(body: EvidenceSubmit):
 # ---------- Health ----------
 @app.get("/v1/health")
 def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "debates_count": len(DEBATES),
+        "max_debates": MAX_DEBATES,
+        "messages_count": sum(len(msgs) for msgs in MESSAGES.values()),
+        "scores_count": len(SCORES)
+    }

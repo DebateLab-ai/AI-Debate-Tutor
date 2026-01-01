@@ -25,9 +25,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/drill-rebuttal" element={<DrillPage />} />
             <Route path="/mailing-list" element={<MailingListPage />} />
           </Routes>
+          <Analytics />
         </BrowserRouter>
       </ErrorBoundary>
-      <Analytics />
     </HelmetProvider>
   </React.StrictMode>,
 )
