@@ -998,7 +998,7 @@ function App() {
         title={debate ? `${topic} - DebateLab` : "Debate - DebateLab"}
         description={debate ? `Active debate: ${topic}. Practice your argumentation skills with an AI opponent and get instant feedback on your debate performance.` : "Start a debate with an AI opponent. Practice your argumentation skills and get instant feedback."}
         keywords={`debate, ${topic}, argumentation, debate practice, AI debate opponent`}
-        url={`https://debatelab.ai/debate${debateId ? `/${debateId}` : '/new'}`}
+        url={`https://debatelab.ai${debateId ? `/debate/${debateId}` : '/new-debate'}`}
         noindex={!!debateId} // Don't index individual debate pages (they're dynamic/private)
       />
       <div className="app debate-mode">
