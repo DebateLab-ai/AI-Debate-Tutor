@@ -832,6 +832,27 @@ body {
   animation: fadeInUp 0.8s ease-out;
 }
 
+.title-with-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+}
+
+.landing-logo {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 12px rgba(74, 144, 226, 0.4));
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateY(8px) translateX(-8px);
+}
+
+.landing-logo:hover {
+  transform: translateY(8px) translateX(-8px) scale(1.1) rotate(5deg);
+  filter: drop-shadow(0 6px 16px rgba(74, 144, 226, 0.6));
+}
+
 @keyframes fadeInUp {
   from {
     opacity: 0;
@@ -1302,6 +1323,13 @@ body {
     left: 12px;
     padding: 6px 12px;
     font-size: 13px;
+  }
+  .landing-logo {
+    width: 48px;
+    height: 48px;
+  }
+  .title-with-logo {
+    gap: 12px;
   }
   .title-main {
     font-size: 42px;

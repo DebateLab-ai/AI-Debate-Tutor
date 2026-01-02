@@ -20,7 +20,14 @@ function LandingPage() {
         <div className="landing-content">
           <header className="landing-hero">
             <h1 className="landing-title">
-              <span className="title-main">DebateLab</span>
+              <div className="title-with-logo">
+                <span className="title-main">DebateLab</span>
+                <img 
+                  src="/favicon.png" 
+                  alt="DebateLab Logo" 
+                  className="landing-logo"
+                />
+              </div>
               <span className="title-subtitle">AI-Powered Debate Practice</span>
             </h1>
             <p className="landing-description">
