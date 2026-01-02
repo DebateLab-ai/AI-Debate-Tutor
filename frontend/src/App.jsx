@@ -139,7 +139,6 @@ function App() {
   const [scoreError, setScoreError] = useState(null)
 
   // Landing/Setup state
-  const [showLanding, setShowLanding] = useState(false) // Don't show landing in debate route
   const [topic, setTopic] = useState('Social media does more harm than good')
   const [topicMode, setTopicMode] = useState('custom') // 'custom' or 'category'
   const [selectedCategory, setSelectedCategory] = useState(null)
@@ -155,41 +154,46 @@ function App() {
 
     // If we're on /new-debate, ensure state is cleared (user wants a new debate)
     if (currentPath === '/new-debate') {
-      if (debateId || setupComplete) {
-        // Clear state when explicitly on new debate page
+      if (setupComplete) {
+        setSetupComplete(false)
+      }
+      if (debateId || debate || messages.length > 0) {
         setDebateId(null)
         setDebate(null)
         setMessages([])
-        setSetupComplete(false)
         setScore(null)
         setScoreError(null)
       }
       return
     }
 
-    // Case 1: URL has an ID - load that debate
+    // If URL has an ID, load that debate
     if (urlId) {
       if (urlId !== debateId) {
-        // URL has different ID than current state - load from URL
         setDebateId(urlId)
         setSetupComplete(true)
         fetchDebate(urlId)
       }
-      // If URL ID matches debateId, we're already on the right debate - do nothing
       return
     }
 
-    // Case 2: No ID in URL but we have an active debate - sync URL
-    if (debateId && setupComplete && currentPath !== `/debate/${debateId}`) {
+    // If on /debate without ID, redirect to new-debate
+    if (currentPath === '/debate') {
+      navigate('/new-debate', { replace: true })
+      return
+    }
+
+    // If no ID in URL but we have an active debate, sync URL (safety net)
+    if (debateId && setupComplete) {
       navigate(`/debate/${debateId}`, { replace: true })
       return
     }
 
-    // Case 3: No ID in URL and no active debate - show form
-    if (!debateId && !setupComplete && currentPath !== '/new-debate') {
+    // If no ID and no active debate, show form
+    if (!debateId && !setupComplete) {
       navigate('/new-debate', { replace: true })
-      return
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id, debateId, setupComplete, location.pathname, navigate])
 
   // Timer state
@@ -399,6 +403,9 @@ function App() {
       setSetupComplete(true)
       setScore(null)
       setScoreError(null)
+
+      // Navigate to the debate page
+      navigate(`/debate/${data.id}`, { replace: true })
 
       // If assistant starts, generate their first turn
       if (starter === 'assistant') {
