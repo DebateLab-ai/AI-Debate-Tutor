@@ -47,7 +47,7 @@ function LandingPage() {
               <p className="community-label">Join our community</p>
               <div className="community-links">
                 <a 
-                  href="https://discord.gg/your-server-invite" 
+                  href="https://discord.gg/CrdxpqdnR7" 
                   target="_blank" 
                   rel="noopener noreferrer"
                   className="community-link"

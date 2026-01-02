@@ -1068,7 +1068,7 @@ body {
   align-items: center;
   gap: 10px;
   padding: 14px 28px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(21, 27, 46, 0.6);
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 10px;
   color: var(--text);
@@ -1097,12 +1097,13 @@ body {
 }
 
 .community-link:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(21, 27, 46, 0.8);
+  border-color: rgba(74, 144, 226, 0.5);
+  color: var(--accent);
   transform: translateY(-2px);
   box-shadow: 
     0 8px 24px rgba(0, 0, 0, 0.3),
-    0 0 0 1px rgba(255, 255, 255, 0.1);
+    0 0 0 1px rgba(74, 144, 226, 0.2);
 }
 
 .community-link:active {

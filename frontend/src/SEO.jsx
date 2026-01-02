@@ -74,7 +74,7 @@ export const organizationSchema = {
   logo: `${BASE_URL}/favicon.png`,
   description: 'AI-powered debate practice platform for improving argumentation skills',
   sameAs: [
-    'https://discord.gg/your-server-invite',
+    'https://discord.gg/CrdxpqdnR7',
   ],
 }
 
