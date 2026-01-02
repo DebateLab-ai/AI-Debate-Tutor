@@ -638,7 +638,7 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
     user_went_first = messages[0].speaker == "user" if messages else False
     user_messages_count = sum(1 for m in messages if m.speaker == "user")
     is_opening_speech = user_went_first and user_messages_count == 1
-
+    
     system_prompt = (
         "You are DebateJudgeGPT, an expert debate adjudicator across APDA, Public Forum, and WSDC formats.\n"
         "You will be given the full transcript of a debate between a human debater and an AI sparring partner.\n"

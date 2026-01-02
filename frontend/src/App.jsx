@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate, useLocation, useParams } from 'react-router-dom'
 import { useToast, ToastContainer } from './Toast'
-import { SEO } from './SEO'
+import { SEO, StructuredData, breadcrumbSchema } from './SEO'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
@@ -153,6 +153,20 @@ function App() {
     const urlId = params.id
     const currentPath = location.pathname
 
+    // If we're on /new-debate, ensure state is cleared (user wants a new debate)
+    if (currentPath === '/new-debate') {
+      if (debateId || setupComplete) {
+        // Clear state when explicitly on new debate page
+        setDebateId(null)
+        setDebate(null)
+        setMessages([])
+        setSetupComplete(false)
+        setScore(null)
+        setScoreError(null)
+      }
+      return
+    }
+
     // Case 1: URL has an ID - load that debate
     if (urlId) {
       if (urlId !== debateId) {
@@ -172,8 +186,8 @@ function App() {
     }
 
     // Case 3: No ID in URL and no active debate - show form
-    if (!debateId && !setupComplete && currentPath !== '/debate/new') {
-      navigate('/debate/new', { replace: true })
+    if (!debateId && !setupComplete && currentPath !== '/new-debate') {
+      navigate('/new-debate', { replace: true })
       return
     }
   }, [params.id, debateId, setupComplete, location.pathname, navigate])
@@ -677,7 +691,7 @@ function App() {
       stopRecording()
     }
     
-    // Clear all state
+    // Clear all state first
     setDebateId(null)
     setDebate(null)
     setMessages([])
@@ -694,9 +708,13 @@ function App() {
     setTopicMode('custom')
     setSelectedCategory(null)
     setNumRounds(2)
+    setTimeRemaining(null)
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current)
+    }
     
-    // Navigate to new debate form
-    navigate('/debate/new', { replace: true })
+    // Navigate to new debate form - use replace to avoid back button issues
+    navigate('/new-debate', { replace: true })
   }
 
   const getScoreGrade = (score) => {
@@ -715,9 +733,9 @@ function App() {
       <>
         <SEO
           title="Start a Debate - DebateLab"
-          description="Start a new debate with an AI opponent. Practice your argumentation skills with instant feedback and personalized coaching."
-          keywords="start debate, debate practice, AI debate opponent, debate training"
-          url="https://debatelab.ai/debate"
+          description="Start a new debate with an AI opponent. Choose from Politics, Economics, Social, or Technology topics, or create your own. Practice your argumentation skills with instant feedback and personalized coaching."
+          keywords="start debate, debate practice, AI debate opponent, debate training, debate topics, argumentation practice"
+          url="https://debatelab.ai/new-debate"
         />
         <div className="app setup-mode">
         <Link to="/" className="return-to-landing" title="Return to home">
@@ -978,9 +996,10 @@ function App() {
     <>
       <SEO
         title={debate ? `${topic} - DebateLab` : "Debate - DebateLab"}
-        description={`Debating: ${topic}. Practice your argumentation skills with an AI opponent and get instant feedback.`}
-        keywords={`debate, ${topic}, argumentation, debate practice`}
-        url={`https://debatelab.ai/debate${debateId ? `?id=${debateId}` : ''}`}
+        description={debate ? `Active debate: ${topic}. Practice your argumentation skills with an AI opponent and get instant feedback on your debate performance.` : "Start a debate with an AI opponent. Practice your argumentation skills and get instant feedback."}
+        keywords={`debate, ${topic}, argumentation, debate practice, AI debate opponent`}
+        url={`https://debatelab.ai/debate${debateId ? `/${debateId}` : '/new'}`}
+        noindex={!!debateId} // Don't index individual debate pages (they're dynamic/private)
       />
       <div className="app debate-mode">
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
@@ -1169,7 +1188,7 @@ function App() {
                         💡 Focus on improving your <strong>{score.weakness_type}</strong> skills with a targeted drill!
                       </p>
                       <Link
-                        to={`/drill-rebuttal?motion=${encodeURIComponent(topic)}&position=${position}&weakness=${encodeURIComponent(score.weakness_type)}`}
+                        to={`/debate-drill-rebuttal?motion=${encodeURIComponent(topic)}&position=${position}&weakness=${encodeURIComponent(score.weakness_type)}`}
                         className="btn-drill"
                       >
                         Practice {score.weakness_type.charAt(0).toUpperCase() + score.weakness_type.slice(1)} Skills →

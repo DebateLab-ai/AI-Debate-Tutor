@@ -14,20 +14,20 @@ import './index.css'
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <HelmetProvider>
-      <ErrorBoundary>
-        <BrowserRouter>
-          <Routes>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <Routes>
             <Route path="/" element={<LandingPage />} />
             <Route path="/debate/new" element={<App />} />
             <Route path="/debate/:id" element={<App />} />
             <Route path="/debate" element={<App />} />
-            <Route path="/drills" element={<DrillsPage />} />
-            <Route path="/drill-rebuttal" element={<DrillPage />} />
+            <Route path="/debate-drills" element={<DrillsPage />} />
+            <Route path="/debate-drill-rebuttal" element={<DrillPage />} />
             <Route path="/mailing-list" element={<MailingListPage />} />
-          </Routes>
+        </Routes>
           <Analytics />
-        </BrowserRouter>
-      </ErrorBoundary>
+      </BrowserRouter>
+    </ErrorBoundary>
     </HelmetProvider>
   </React.StrictMode>,
 )

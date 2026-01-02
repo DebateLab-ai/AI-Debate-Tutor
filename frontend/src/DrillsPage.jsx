@@ -49,7 +49,7 @@ function DrillsPage() {
       return
     }
 
-    let url = `/drill-rebuttal?motion=${encodeURIComponent(topic)}&position=${position}&weakness=${selectedType}`
+    let url = `/debate-drill-rebuttal?motion=${encodeURIComponent(topic)}&position=${position}&weakness=${selectedType}`
     if (timerEnabled) {
       url += `&timer=${timerMinutes}`
     }
@@ -59,10 +59,10 @@ function DrillsPage() {
   return (
     <>
       <SEO
-        title="Practice Drills - DebateLab"
-        description="Practice specific debate skills with targeted drills. Choose from rebuttal, structure, weighing, evidence, and strategy drills to improve your argumentation."
-        keywords="debate drills, debate practice, rebuttal practice, debate structure, argumentation skills, debate training"
-        url="https://debatelab.ai/drills"
+        title="Debate Practice Drills - DebateLab"
+        description="Practice specific debate skills with targeted debate drills. Choose from rebuttal, structure, weighing, evidence, and strategy drills to improve your debate argumentation and debate performance."
+        keywords="debate drills, debate practice, debate training, rebuttal practice, debate structure, debate argumentation skills, debate coaching, debate exercises"
+        url="https://debatelab.ai/debate-drills"
       />
       <div className="app drills-selection-mode">
       <button
@@ -75,7 +75,7 @@ function DrillsPage() {
 
       <div className="drills-selection-container">
         <div className="drills-selection-header">
-          <h1>Practice Drills</h1>
+          <h1>Debate Practice Drills</h1>
           <p className="drills-subtitle">
             Choose a drill type and topic to practice specific debate skills
           </p>

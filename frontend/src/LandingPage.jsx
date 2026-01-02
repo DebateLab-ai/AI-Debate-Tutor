@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { SEO, StructuredData, organizationSchema, websiteSchema, softwareApplicationSchema } from './SEO'
+import { SEO, StructuredData, organizationSchema, websiteSchema, softwareApplicationSchema, faqSchema, howToDebateSchema } from './SEO'
 
 function LandingPage() {
   return (
@@ -13,6 +13,8 @@ function LandingPage() {
       <StructuredData data={organizationSchema} />
       <StructuredData data={websiteSchema} />
       <StructuredData data={softwareApplicationSchema} />
+      <StructuredData data={faqSchema} />
+      <StructuredData data={howToDebateSchema} />
       <div className="app landing-mode">
       <main className="landing-container">
         <div className="landing-content">
@@ -27,14 +29,14 @@ function LandingPage() {
             </p>
             <nav className="landing-actions" aria-label="Main navigation">
               <Link 
-                to="/debate/new"
+                to="/new-debate"
                 className="cta-button"
               >
                 Start Debate
                 <span className="cta-arrow" aria-hidden="true">→</span>
               </Link>
               <Link 
-                to="/drills"
+                to="/debate-drills"
                 className="cta-button cta-button-secondary"
               >
                 Practice Drills

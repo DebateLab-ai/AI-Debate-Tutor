@@ -262,9 +262,10 @@ function DrillPage() {
     return (
       <>
         <SEO
-          title="Loading Drill - DebateLab"
-          description="Loading debate drill..."
-          url="https://debatelab.ai/drill-rebuttal"
+          title="Loading Debate Drill - DebateLab"
+          description="Loading debate drill practice session..."
+          keywords="debate drill, debate practice, debate training"
+          url="https://debatelab.ai/debate-drill-rebuttal"
         />
         <div className="app drill-mode">
           <div className="drill-container">
@@ -276,19 +277,19 @@ function DrillPage() {
   }
 
   const drillTitle = weaknessType 
-    ? `${weaknessType.charAt(0).toUpperCase() + weaknessType.slice(1)} Drill - DebateLab`
-    : 'Rebuttal Drill - DebateLab'
+    ? `${weaknessType.charAt(0).toUpperCase() + weaknessType.slice(1)} Debate Drill - DebateLab`
+    : 'Rebuttal Debate Drill - DebateLab'
   const drillDescription = weaknessType
-    ? `Practice ${weaknessType} skills with targeted debate drills. Get instant feedback on your argumentation and improve your debate performance.`
-    : 'Practice rebuttal skills with targeted debate drills. Get instant feedback on your argumentation and improve your debate performance.'
+    ? `Practice ${weaknessType} skills with targeted debate drills. Get instant feedback on your debate argumentation and improve your debate performance.`
+    : 'Practice rebuttal skills with targeted debate drills. Get instant feedback on your debate argumentation and improve your debate performance.'
 
   return (
     <>
       <SEO
         title={drillTitle}
         description={drillDescription}
-        keywords={`${weaknessType || 'rebuttal'} drill, debate practice, argumentation skills, debate training`}
-        url={`https://debatelab.ai/drill-rebuttal?motion=${encodeURIComponent(motion)}&position=${position}&weakness=${weaknessType || 'rebuttal'}`}
+        keywords={`${weaknessType || 'rebuttal'} debate drill, debate practice, debate training, debate argumentation skills, debate exercises, debate coaching`}
+        url={`https://debatelab.ai/debate-drill-rebuttal?motion=${encodeURIComponent(motion)}&position=${position}&weakness=${weaknessType || 'rebuttal'}`}
       />
       <div className="app drill-mode">
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
@@ -316,7 +317,7 @@ function DrillPage() {
           </div>
         )}
         <div className="drill-header">
-          <h1>{weaknessType ? `${weaknessType.charAt(0).toUpperCase() + weaknessType.slice(1)} Drill` : 'Rebuttal Drill'}</h1>
+          <h1>{weaknessType ? `${weaknessType.charAt(0).toUpperCase() + weaknessType.slice(1)} Debate Drill` : 'Rebuttal Debate Drill'}</h1>
           <p className="drill-subtitle">Practice {weaknessType ? weaknessType : 'refuting claims'} on: <strong>{motion}</strong></p>
           <p className="drill-info">
             You argued <strong>{position.toUpperCase()}</strong> •
