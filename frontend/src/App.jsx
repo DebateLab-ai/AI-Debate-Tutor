@@ -743,6 +743,7 @@ function App() {
           description="Start a new debate with an AI opponent. Choose from Politics, Economics, Social, or Technology topics, or create your own. Practice your argumentation skills with instant feedback and personalized coaching."
           keywords="start debate, debate practice, AI debate opponent, debate training, debate topics, argumentation practice"
           url="https://debatelab.ai/new-debate"
+          noindex={false}
         />
         <div className="app setup-mode">
         <Link to="/" className="return-to-landing" title="Return to home">
