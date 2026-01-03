@@ -42,6 +42,13 @@ export function SEO({
       {/* Canonical URL */}
       <link rel="canonical" href={url} />
       
+      {/* Favicon Links - Critical for Google Search Results */}
+      <link rel="icon" type="image/png" href={`${BASE_URL}/favicon.png`} />
+      <link rel="icon" type="image/png" sizes="32x32" href={`${BASE_URL}/favicon.png`} />
+      <link rel="icon" type="image/png" sizes="16x16" href={`${BASE_URL}/favicon.png`} />
+      <link rel="apple-touch-icon" sizes="180x180" href={`${BASE_URL}/favicon.png`} />
+      <link rel="shortcut icon" href={`${BASE_URL}/favicon.png`} />
+      
       {/* Additional SEO Tags */}
       <meta name="geo.region" content="US" />
       <meta name="geo.placename" content="United States" />
