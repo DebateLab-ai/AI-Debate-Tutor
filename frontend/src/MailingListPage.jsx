@@ -105,7 +105,7 @@ function MailingListPage() {
         description="Subscribe to DebateLab's mailing list to get notified about new features, debate tips, updates, and exclusive content."
         keywords="debate newsletter, debate updates, debate tips, debate community"
         url="https://debatelab.ai/mailing-list"
-        noindex={true}
+        noindex={false}
       />
       <div className="app mailing-list-mode">
       <button 
