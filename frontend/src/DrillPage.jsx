@@ -225,13 +225,7 @@ function DrillPage() {
 
       const data = await response.json()
       
-      // Track drill rebuttal submission in Vercel Analytics
-      // TrackingPage will automatically redirect back to the drill URL
-      const currentPath = window.location.pathname
-      const currentSearch = window.location.search
-      const returnUrl = `${currentPath}${currentSearch}`
-      navigate(`/track/drill-rebuttal-submit?return=${encodeURIComponent(returnUrl)}`, { replace: false })
-      
+      // Update state first to avoid losing updates during navigation
       setLastScore(data)
       setCurrentClaim(data.next_claim)
       setClaimPosition(data.next_claim_position)
@@ -239,6 +233,16 @@ function DrillPage() {
       setAttemptCount(prev => prev + 1)
       // Reset timer for next claim
       setTimeRemaining(null)
+      
+      // Track drill rebuttal submission in Vercel Analytics after state updates
+      // TrackingPage will automatically redirect back to the drill URL
+      const currentPath = window.location.pathname
+      const currentSearch = window.location.search
+      const returnUrl = `${currentPath}${currentSearch}`
+      // Use setTimeout to defer tracking so state updates complete first
+      setTimeout(() => {
+        navigate(`/track/drill-rebuttal-submit?return=${encodeURIComponent(returnUrl)}`, { replace: false })
+      }, 100)
 
       // Scroll to score feedback
       setTimeout(() => {

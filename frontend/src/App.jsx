@@ -405,13 +405,20 @@ function App() {
       setScoreError(null)
 
       // Track debate creation in Vercel Analytics
-      // TrackingPage will automatically redirect back to the debate URL
+      // Do this after setting up state, but before AI turn generation
       const debateUrl = `/debate/${data.id}`
-      navigate(`/track/debate-created?return=${encodeURIComponent(debateUrl)}`, { replace: false })
-
-      // If assistant starts, generate their first turn
+      
+      // If assistant starts, generate their first turn first
+      // Then do tracking after a delay to avoid interrupting AI generation
       if (starter === 'assistant') {
-        setTimeout(() => generateAITurn(data.id), 500)
+        setTimeout(() => generateAITurn(data.id), 100)
+        // Track after AI turn generation starts
+        setTimeout(() => {
+          navigate(`/track/debate-created?return=${encodeURIComponent(debateUrl)}`, { replace: false })
+        }, 200)
+      } else {
+        // If user starts, track immediately
+        navigate(`/track/debate-created?return=${encodeURIComponent(debateUrl)}`, { replace: false })
       }
     } catch (error) {
       console.error('Error starting debate:', error)
@@ -563,13 +570,6 @@ function App() {
 
       const turnData = await response.json()
 
-      // Track user turn in Vercel Analytics
-      // TrackingPage will automatically redirect back to the debate URL
-      if (debateId && location.pathname === `/debate/${debateId}`) {
-        const debateUrl = `/debate/${debateId}`
-        navigate(`/track/user-turn?return=${encodeURIComponent(debateUrl)}`, { replace: false })
-      }
-
       // Create message object from the submission
       // Note: TurnOut doesn't include content, so we use the original argument
       const newMessage = {
@@ -636,13 +636,6 @@ function App() {
       // Get the AI response data - use it directly instead of refetching
       const aiTurnData = await response.json()
 
-      // Track AI turn in Vercel Analytics
-      // TrackingPage will automatically redirect back to the debate URL
-      if (targetId && location.pathname === `/debate/${targetId}`) {
-        const debateUrl = `/debate/${targetId}`
-        navigate(`/track/ai-turn?return=${encodeURIComponent(debateUrl)}`, { replace: false })
-      }
-
       // Create message object from the response
       const newMessage = {
         id: aiTurnData.message_id,
@@ -663,9 +656,20 @@ function App() {
         status: aiTurnData.status,
       } : null)
       
-      // If debate completed, compute the score (POST directly since we know it doesn't exist yet)
+      // If debate completed, compute the score first (POST directly since we know it doesn't exist yet)
+      // Do this before tracking to ensure score calculation isn't interrupted
       if (aiTurnData.status === 'completed') {
         await fetchScore(targetId, true)
+      }
+      
+      // Track AI turn in Vercel Analytics after state updates and score calculation
+      // Skip tracking for completed debates to avoid interrupting score display
+      if (targetId && location.pathname === `/debate/${targetId}` && aiTurnData.status !== 'completed') {
+        const debateUrl = `/debate/${targetId}`
+        // Use setTimeout to defer tracking slightly so it doesn't interrupt UI updates
+        setTimeout(() => {
+          navigate(`/track/ai-turn?return=${encodeURIComponent(debateUrl)}`, { replace: false })
+        }, 100)
       }
     } catch (error) {
       console.error('Error generating AI turn:', error)
