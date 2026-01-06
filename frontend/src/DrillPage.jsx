@@ -224,6 +224,14 @@ function DrillPage() {
       }
 
       const data = await response.json()
+      
+      // Track drill rebuttal submission in Vercel Analytics
+      // TrackingPage will automatically redirect back to the drill URL
+      const currentPath = window.location.pathname
+      const currentSearch = window.location.search
+      const returnUrl = `${currentPath}${currentSearch}`
+      navigate(`/track/drill-rebuttal-submit?return=${encodeURIComponent(returnUrl)}`, { replace: false })
+      
       setLastScore(data)
       setCurrentClaim(data.next_claim)
       setClaimPosition(data.next_claim_position)

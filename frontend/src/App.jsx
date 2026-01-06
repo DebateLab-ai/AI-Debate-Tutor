@@ -404,9 +404,10 @@ function App() {
       setScore(null)
       setScoreError(null)
 
-      // Navigate to the debate page
-      // Use replace: false to ensure Vercel Analytics tracks the page view
-      navigate(`/debate/${data.id}`, { replace: false })
+      // Track debate creation in Vercel Analytics
+      // TrackingPage will automatically redirect back to the debate URL
+      const debateUrl = `/debate/${data.id}`
+      navigate(`/track/debate-created?return=${encodeURIComponent(debateUrl)}`, { replace: false })
 
       // If assistant starts, generate their first turn
       if (starter === 'assistant') {
@@ -562,6 +563,13 @@ function App() {
 
       const turnData = await response.json()
 
+      // Track user turn in Vercel Analytics
+      // TrackingPage will automatically redirect back to the debate URL
+      if (debateId && location.pathname === `/debate/${debateId}`) {
+        const debateUrl = `/debate/${debateId}`
+        navigate(`/track/user-turn?return=${encodeURIComponent(debateUrl)}`, { replace: false })
+      }
+
       // Create message object from the submission
       // Note: TurnOut doesn't include content, so we use the original argument
       const newMessage = {
@@ -627,6 +635,13 @@ function App() {
 
       // Get the AI response data - use it directly instead of refetching
       const aiTurnData = await response.json()
+
+      // Track AI turn in Vercel Analytics
+      // TrackingPage will automatically redirect back to the debate URL
+      if (targetId && location.pathname === `/debate/${targetId}`) {
+        const debateUrl = `/debate/${targetId}`
+        navigate(`/track/ai-turn?return=${encodeURIComponent(debateUrl)}`, { replace: false })
+      }
 
       // Create message object from the response
       const newMessage = {

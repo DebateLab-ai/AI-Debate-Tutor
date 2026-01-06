@@ -8,6 +8,7 @@ import App from './App'
 import DrillPage from './DrillPage'
 import DrillsPage from './DrillsPage'
 import MailingListPage from './MailingListPage'
+import TrackingPage from './TrackingPage'
 import ErrorBoundary from './ErrorBoundary'
 import './index.css'
 
@@ -24,6 +25,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/debate-drills" element={<DrillsPage />} />
             <Route path="/debate-drill-rebuttal" element={<DrillPage />} />
             <Route path="/mailing-list" element={<MailingListPage />} />
+            {/* Tracking routes for analytics (no custom events needed) */}
+            <Route path="/track/debate-created" element={<TrackingPage />} />
+            <Route path="/track/ai-turn" element={<TrackingPage />} />
+            <Route path="/track/user-turn" element={<TrackingPage />} />
+            <Route path="/track/drill-rebuttal-submit" element={<TrackingPage />} />
+            <Route path="/track/drill-submit" element={<TrackingPage />} />
         </Routes>
           <Analytics />
       </BrowserRouter>
