@@ -1327,6 +1327,10 @@ body {
   .landing-logo {
     width: 48px;
     height: 48px;
+    transform: translateY(2px) translateX(-6px);
+  }
+  .landing-logo:hover {
+    transform: translateY(2px) translateX(-6px) scale(1.1) rotate(5deg);
   }
   .title-with-logo {
     gap: 12px;
