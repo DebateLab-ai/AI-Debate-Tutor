@@ -405,7 +405,8 @@ function App() {
       setScoreError(null)
 
       // Navigate to the debate page
-      navigate(`/debate/${data.id}`, { replace: true })
+      // Use replace: false to ensure Vercel Analytics tracks the page view
+      navigate(`/debate/${data.id}`, { replace: false })
 
       // If assistant starts, generate their first turn
       if (starter === 'assistant') {
