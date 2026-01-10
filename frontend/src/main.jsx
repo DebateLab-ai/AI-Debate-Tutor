@@ -26,7 +26,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/debate-drill-rebuttal" element={<DrillPage />} />
             <Route path="/mailing-list" element={<MailingListPage />} />
             {/* Tracking routes for analytics (no custom events needed) */}
-            <Route path="/track/debate-created" element={<TrackingPage />} />
             <Route path="/track/user-turn" element={<TrackingPage />} />
             <Route path="/track/drill-rebuttal-submit" element={<TrackingPage />} />
             <Route path="/track/drill-submit" element={<TrackingPage />} />

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, startTransition } from 'react'
 import { Link, useNavigate, useLocation, useParams } from 'react-router-dom'
 import { useToast, ToastContainer } from './Toast'
 import { SEO, StructuredData, breadcrumbSchema } from './SEO'
@@ -428,11 +428,8 @@ function App() {
         // No delay needed as we want smooth transition
         generateAITurn(data.id)
       } else {
-        // If user starts, set loading to false and track after delay
+        // If user starts, set loading to false
         setLoading(false)
-        setTimeout(() => {
-          navigate(`/track/debate-created?return=${encodeURIComponent(debateUrl)}`, { replace: false })
-        }, 500)
       }
     } catch (error) {
       console.error('Error starting debate:', error)
@@ -609,25 +606,22 @@ function App() {
       setArgument('')
       setAudioFile(null)
       
-      // Track user turn after state updates are rendered (React 18+ batches synchronous updates)
-      const debateUrl = `/debate/${debateId}`
-      if (debateId && location.pathname === debateUrl) {
-        // Small delay to ensure state updates are rendered before tracking navigation
-        // TrackingPage redirects immediately with replace: true, so no flicker
-        setTimeout(() => {
-          navigate(`/track/user-turn?return=${encodeURIComponent(debateUrl)}`, { replace: false })
-        }, 200)
-      }
-      
       // Auto-generate AI response if it's the assistant's turn
       if (turnData.status === 'active' && turnData.next_speaker === 'assistant') {
-        // Delay AI generation to let tracking complete first (TrackingPage redirects immediately)
-        setTimeout(() => {
-          generateAITurn(debateId)
-        }, 800)
+        // Start AI generation immediately - no delays or tracking interference
+        generateAITurn(debateId)
       } else if (turnData.status === 'completed') {
         // Compute score directly (POST) since we know it doesn't exist yet
         await fetchScore(debateId, true)
+        
+        // Track user turn for completed debates only (when there's no active streaming)
+        // Do this after score computation to avoid any interference
+        const debateUrl = `/debate/${debateId}`
+        if (debateId) {
+          setTimeout(() => {
+            navigate(`/track/user-turn?return=${encodeURIComponent(debateUrl)}`, { replace: true })
+          }, 600)
+        }
       }
     } catch (error) {
       console.error('Error submitting argument:', error)
@@ -716,6 +710,7 @@ function App() {
                 finalData = data
                 
                 // Replace temporary message with final message
+                // Update synchronously - React 18+ will batch these automatically
                 const finalMessage = {
                   id: data.message_id,
                   round_no: data.round_no,
@@ -724,11 +719,11 @@ function App() {
                   created_at: new Date().toISOString(),
                 }
                 
+                // All state updates happen synchronously - React batches them into one render
                 setMessages(prev => prev.map(msg => 
                   msg.id === tempMessageId ? finalMessage : msg
                 ))
                 
-                // Update debate state
                 setDebate(prev => prev ? {
                   ...prev,
                   current_round: data.current_round,
@@ -757,6 +752,8 @@ function App() {
           const data = JSON.parse(buffer.slice(6))
           if (data.done && !finalData) {
             finalData = data
+            // Replace temporary message with final message
+            // Update synchronously - React 18+ will batch these automatically
             const finalMessage = {
               id: data.message_id,
               round_no: data.round_no,
@@ -764,10 +761,12 @@ function App() {
               content: data.content || streamingContent,
               created_at: new Date().toISOString(),
             }
-            // Batch all state updates together (React 18+ will batch these automatically)
+            
+            // All state updates happen synchronously - React batches them into one render
             setMessages(prev => prev.map(msg => 
               msg.id === tempMessageId ? finalMessage : msg
             ))
+            
             setDebate(prev => prev ? {
               ...prev,
               current_round: data.current_round,
@@ -1202,7 +1201,7 @@ function App() {
           
           {messages.map((message, index) => (
             <div
-              key={message.id}
+              key={`${message.speaker}-${message.round_no}-${index}`}
               className={`message ${message.speaker === 'user' ? 'message-user' : 'message-ai'}`}
             >
               <div className="message-header">
