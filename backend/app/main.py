@@ -84,14 +84,40 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
 
 # CORS configuration - allow specific origins in production
-CORS_ORIGINS_ENV = os.getenv("CORS_ORIGINS", "*")
-CORS_ORIGINS = ["*"] if CORS_ORIGINS_ENV == "*" else [origin.strip() for origin in CORS_ORIGINS_ENV.split(",")]
+# IMPORTANT: Cannot use allow_credentials=True with wildcard origins "*"
+# So we always specify explicit origins to allow credentials
+CORS_ORIGINS_ENV = os.getenv("CORS_ORIGINS", "").strip()
+
+# Default production origins - always include these for safety
+default_origins = [
+    "https://debatelab.ai",
+    "https://www.debatelab.ai",
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:8000",
+]
+
+if CORS_ORIGINS_ENV == "*" or not CORS_ORIGINS_ENV:
+    # If wildcard or empty, use default production origins
+    CORS_ORIGINS = default_origins
+else:
+    # Parse comma-separated list and merge with defaults
+    origins_list = [origin.strip() for origin in CORS_ORIGINS_ENV.split(",") if origin.strip()]
+    # Combine and deduplicate, preserving order (custom origins first)
+    CORS_ORIGINS = list(dict.fromkeys(origins_list + default_origins))
+
+print(f"[CORS] Allowing origins: {CORS_ORIGINS}")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # ---------- RAG System ----------
@@ -102,17 +128,33 @@ rag_system: Optional[SimpleRAG] = None
 def startup_event():
     """Initialize RAG system with corpus on app startup"""
     global rag_system
-    corpus_dir = os.getenv("SPEECH_CORPUS_DIR", "./app/corpus")
+    try:
+        corpus_dir = os.getenv("SPEECH_CORPUS_DIR", "./app/corpus")
+        # Handle both relative and absolute paths
+        if not os.path.isabs(corpus_dir):
+            # Relative path - try from app directory
+            app_dir = os.path.dirname(__file__)
+            corpus_dir = os.path.join(app_dir, "corpus")
 
-    print(f"[RAG] Initializing RAG system with corpus from: {corpus_dir}")
-    rag_system = SimpleRAG()
+        print(f"[RAG] Initializing RAG system with corpus from: {corpus_dir}")
+        rag_system = SimpleRAG()
 
-    if os.path.exists(corpus_dir):
-        rag_system.add_corpus_folder(corpus_dir, pattern=r".*\.txt$")
-        print(f"[RAG] Indexed {len(rag_system.docs)} documents")
-    else:
-        print(f"[RAG] Warning: Corpus directory not found: {corpus_dir}")
-        print(f"[RAG] RAG system initialized but no documents loaded")
+        if os.path.exists(corpus_dir):
+            try:
+                rag_system.add_corpus_folder(corpus_dir, pattern=r".*\.txt$")
+                print(f"[RAG] Indexed {len(rag_system.docs)} documents")
+            except Exception as e:
+                print(f"[RAG] Warning: Failed to load corpus from {corpus_dir}: {e}")
+                print(f"[RAG] RAG system initialized but no documents loaded")
+        else:
+            print(f"[RAG] Warning: Corpus directory not found: {corpus_dir}")
+            print(f"[RAG] RAG system initialized but no documents loaded")
+    except Exception as e:
+        print(f"[RAG] Error during startup: {e}")
+        import traceback
+        traceback.print_exc()
+        # Initialize empty RAG system to prevent crashes
+        rag_system = SimpleRAG()
     
     print(f"[CLEANUP] Maximum debates limit: {MAX_DEBATES} (configure via MAX_DEBATES env var)")
     print(f"[CLEANUP] Cleanup threshold: {CLEANUP_THRESHOLD} (cleanup runs when {MAX_DEBATES + CLEANUP_THRESHOLD} debates reached)")
@@ -684,6 +726,7 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
             "1-2: Weak - Minimal substantive engagement. Very underdeveloped or off-topic.\n\n"
         )
 
+    system_prompt += (
         "STRATEGY SCORING GUIDELINES (MUST FOLLOW):\n"
         "- Strategy is hard to judge perfectly, so be generous with scoring:\n"
         "- If there is AT LEAST a conceivable way for the user to win the debate (even if not optimal) → score >= 6\n"

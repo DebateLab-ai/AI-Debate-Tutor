@@ -279,11 +279,11 @@ function DrillPage() {
           keywords="debate drill, debate practice, debate training"
           url="https://debatelab.ai/debate-drill-rebuttal"
         />
-        <div className="app drill-mode">
-          <div className="drill-container">
-            <p>Loading drill...</p>
-          </div>
+      <div className="app drill-mode">
+        <div className="drill-container">
+          <p>Loading drill...</p>
         </div>
+      </div>
       </>
     )
   }
@@ -303,7 +303,7 @@ function DrillPage() {
         keywords={`${weaknessType || 'rebuttal'} debate drill, debate practice, debate training, debate argumentation skills, debate exercises, debate coaching`}
         url={`https://debatelab.ai/debate-drill-rebuttal?motion=${encodeURIComponent(motion)}&position=${position}&weakness=${weaknessType || 'rebuttal'}`}
       />
-      <div className="app drill-mode">
+    <div className="app drill-mode">
       <ToastContainer toasts={toast.toasts} removeToast={toast.removeToast} />
       <button
         className="return-to-landing"

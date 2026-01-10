@@ -64,7 +64,7 @@ function DrillsPage() {
         keywords="debate drills, debate practice, debate training, rebuttal practice, debate structure, debate argumentation skills, debate coaching, debate exercises"
         url="https://debatelab.ai/debate-drills"
       />
-      <div className="app drills-selection-mode">
+    <div className="app drills-selection-mode">
       <button
         className="return-to-landing"
         onClick={() => navigate('/')}
