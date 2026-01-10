@@ -422,21 +422,12 @@ function App() {
       
       // If assistant starts, generate their first turn
       // Don't set loading to false yet - let generateAITurn handle the loading state
+      // Don't track debate creation here - wait until after first message is displayed
       if (starter === 'assistant') {
         // Wait a bit for navigation to complete, then generate AI turn
-        // Track debate creation after AI turn completes to avoid flicker
+        // Tracking will happen inside generateAITurn after first message displays
         setTimeout(() => {
-          generateAITurn(data.id).then(() => {
-            // Track debate creation after first AI turn completes
-            setTimeout(() => {
-              navigate(`/track/debate-created?return=${encodeURIComponent(debateUrl)}`, { replace: false })
-            }, 300)
-          }).catch(() => {
-            // If AI turn fails, still track debate creation
-            setTimeout(() => {
-              navigate(`/track/debate-created?return=${encodeURIComponent(debateUrl)}`, { replace: false })
-            }, 300)
-          })
+          generateAITurn(data.id)
         }, 150)
       } else {
         // If user starts, we can set loading to false and track immediately
@@ -444,7 +435,7 @@ function App() {
         // Track after a small delay to let navigation settle
         setTimeout(() => {
           navigate(`/track/debate-created?return=${encodeURIComponent(debateUrl)}`, { replace: false })
-        }, 200)
+        }, 300)
       }
     } catch (error) {
       console.error('Error starting debate:', error)
@@ -697,16 +688,28 @@ function App() {
         }, 400)
       }
       
-      // Track AI turn in Vercel Analytics after state updates and score calculation
-      // Skip tracking for:
-      // 1. Completed debates (to avoid interrupting score display)
-      // 2. First AI turn (to prevent flicker on initial message)
-      if (targetId && location.pathname === `/debate/${targetId}` && aiTurnData.status !== 'completed' && !isFirstTurn) {
+      // Track AFTER the first message is fully displayed (no flicker)
+      // For first turn: track both debate-created and ai-turn together after a delay
+      // For subsequent turns: track ai-turn after a delay
+      if (targetId && location.pathname === `/debate/${targetId}` && aiTurnData.status !== 'completed') {
         const debateUrl = `/debate/${targetId}`
-        // Use longer delay for smoother UX
-        setTimeout(() => {
-          navigate(`/track/ai-turn?return=${encodeURIComponent(debateUrl)}`, { replace: false })
-        }, 500)
+        
+        if (isFirstTurn) {
+          // First message: Wait longer (2 seconds) for message to fully display, then track both events
+          setTimeout(() => {
+            // Track debate creation first
+            navigate(`/track/debate-created?return=${encodeURIComponent(debateUrl)}`, { replace: false })
+            // Then track AI turn after a brief delay
+            setTimeout(() => {
+              navigate(`/track/ai-turn?return=${encodeURIComponent(debateUrl)}`, { replace: false })
+            }, 200)
+          }, 2000) // 2 second delay to let first message settle
+        } else {
+          // Subsequent turns: track ai-turn after shorter delay
+          setTimeout(() => {
+            navigate(`/track/ai-turn?return=${encodeURIComponent(debateUrl)}`, { replace: false })
+          }, 500)
+        }
       }
     } catch (error) {
       console.error('Error generating AI turn:', error)
