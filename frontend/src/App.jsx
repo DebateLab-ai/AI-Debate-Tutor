@@ -410,32 +410,29 @@ function App() {
         return
       }
       const data = await response.json()
+      
+      // Update all state first (React 18+ batches these synchronous updates)
+      const debateUrl = `/debate/${data.id}`
       setDebateId(data.id)
       setDebate(data)
       setSetupComplete(true)
       setScore(null)
       setScoreError(null)
-
-      // Navigate to debate page first to establish the route
-      const debateUrl = `/debate/${data.id}`
+      
+      // Navigate using replace: false to avoid issues, then generate AI turn if needed
+      // Keep loading state true - generateAITurn will manage it
       navigate(debateUrl, { replace: false })
       
-      // If assistant starts, generate their first turn
-      // Don't set loading to false yet - let generateAITurn handle the loading state
-      // Don't track debate creation here - wait until after first message is displayed
       if (starter === 'assistant') {
-        // Wait a bit for navigation to complete, then generate AI turn
-        // Tracking will happen inside generateAITurn after first message displays
-        setTimeout(() => {
-          generateAITurn(data.id)
-        }, 150)
+        // Generate AI turn - it will handle loading state
+        // No delay needed as we want smooth transition
+        generateAITurn(data.id)
       } else {
-        // If user starts, we can set loading to false and track immediately
+        // If user starts, set loading to false and track after delay
         setLoading(false)
-        // Track after a small delay to let navigation settle
         setTimeout(() => {
           navigate(`/track/debate-created?return=${encodeURIComponent(debateUrl)}`, { replace: false })
-        }, 300)
+        }, 500)
       }
     } catch (error) {
       console.error('Error starting debate:', error)
@@ -641,7 +638,11 @@ function App() {
       return
     }
 
-    setLoading(true)
+    // Set loading state - but only if not already loading (prevent double state update)
+    if (!loading) {
+      setLoading(true)
+    }
+    
     try {
       const response = await fetchWithTimeout(`${API_BASE}/v1/debates/${targetId}/auto-turn`, {
         method: 'POST',
@@ -667,9 +668,8 @@ function App() {
       // First turn is when round is 1 and there are no existing messages
       const isFirstTurn = aiTurnData.round_no === 1 && messages.length === 0
       
-      // Update states together synchronously to prevent flicker
-      // React 18+ automatically batches these synchronous state updates into a single render
-      // This ensures the message appears at the same time loading disappears
+      // Update states together synchronously - React 18+ automatically batches these
+      // This ensures all updates happen in a single render, preventing flicker
       setLoading(false)
       setMessages(prev => [...prev, newMessage])
       setDebate(prev => prev ? {
@@ -688,29 +688,19 @@ function App() {
         }, 400)
       }
       
-      // Track AFTER the first message is fully displayed (no flicker)
-      // For first turn: track both debate-created and ai-turn together after a delay
-      // For subsequent turns: track ai-turn after a delay
-      if (targetId && location.pathname === `/debate/${targetId}` && aiTurnData.status !== 'completed') {
+      // Skip ALL tracking navigation for first turn to prevent flicker
+      // The page view for /debate/:id will be tracked by Vercel Analytics automatically
+      // We only track specific events (ai-turn) for subsequent turns
+      if (targetId && location.pathname === `/debate/${targetId}` && aiTurnData.status !== 'completed' && !isFirstTurn) {
         const debateUrl = `/debate/${targetId}`
-        
-        if (isFirstTurn) {
-          // First message: Wait longer (2 seconds) for message to fully display, then track both events
-          setTimeout(() => {
-            // Track debate creation first
-            navigate(`/track/debate-created?return=${encodeURIComponent(debateUrl)}`, { replace: false })
-            // Then track AI turn after a brief delay
-            setTimeout(() => {
-              navigate(`/track/ai-turn?return=${encodeURIComponent(debateUrl)}`, { replace: false })
-            }, 200)
-          }, 2000) // 2 second delay to let first message settle
-        } else {
-          // Subsequent turns: track ai-turn after shorter delay
-          setTimeout(() => {
-            navigate(`/track/ai-turn?return=${encodeURIComponent(debateUrl)}`, { replace: false })
-          }, 500)
-        }
+        // Only track for subsequent turns, with delay to let message display smoothly
+        setTimeout(() => {
+          navigate(`/track/ai-turn?return=${encodeURIComponent(debateUrl)}`, { replace: false })
+        }, 800)
       }
+      
+      // For first turn: Skip all tracking navigation - the page view is already tracked
+      // when user navigates to /debate/:id
     } catch (error) {
       console.error('Error generating AI turn:', error)
       // NEVER expose error.message - could contain prompts during network failures
