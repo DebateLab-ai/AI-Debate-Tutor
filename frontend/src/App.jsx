@@ -609,9 +609,19 @@ function App() {
       setArgument('')
       setAudioFile(null)
       
+      // Track user turn after state updates are rendered (React 18+ batches synchronous updates)
+      const debateUrl = `/debate/${debateId}`
+      if (debateId && location.pathname === debateUrl) {
+        // Small delay to ensure state updates are rendered before tracking navigation
+        // TrackingPage redirects immediately with replace: true, so no flicker
+        setTimeout(() => {
+          navigate(`/track/user-turn?return=${encodeURIComponent(debateUrl)}`, { replace: false })
+        }, 200)
+      }
+      
       // Auto-generate AI response if it's the assistant's turn
       if (turnData.status === 'active' && turnData.next_speaker === 'assistant') {
-        // Small delay to ensure UI updates
+        // Delay AI generation to let tracking complete first (TrackingPage redirects immediately)
         setTimeout(() => {
           generateAITurn(debateId)
         }, 800)
@@ -638,10 +648,7 @@ function App() {
       return
     }
 
-    // Check if this is the first turn (before making request)
-    const isFirstTurn = messages.length === 0
-    
-    // Set loading state - but only if not already loading (prevents flicker on first turn)
+    // Set loading state - but only if not already loading (prevents flicker)
     if (!loading) {
       setLoading(true)
     }
@@ -735,14 +742,6 @@ function App() {
                     fetchScore(targetId, true)
                   }, 400)
                 }
-                
-                // Track AI turn for subsequent turns only
-                if (targetId && location.pathname === `/debate/${targetId}` && data.status !== 'completed' && !isFirstTurn) {
-                  const debateUrl = `/debate/${targetId}`
-                  setTimeout(() => {
-                    navigate(`/track/ai-turn?return=${encodeURIComponent(debateUrl)}`, { replace: false })
-                  }, 800)
-                }
               }
             } catch (parseError) {
               // Skip malformed JSON lines
@@ -752,7 +751,7 @@ function App() {
         }
       }
       
-      // Handle any remaining buffer
+      // Handle any remaining buffer (edge case where done message is in final buffer)
       if (buffer.trim() && buffer.startsWith('data: ')) {
         try {
           const data = JSON.parse(buffer.slice(6))
@@ -765,6 +764,7 @@ function App() {
               content: data.content || streamingContent,
               created_at: new Date().toISOString(),
             }
+            // Batch all state updates together (React 18+ will batch these automatically)
             setMessages(prev => prev.map(msg => 
               msg.id === tempMessageId ? finalMessage : msg
             ))
@@ -774,6 +774,13 @@ function App() {
               next_speaker: data.next_speaker,
               status: data.status,
             } : null)
+            
+            // If debate completed, compute the score
+            if (data.status === 'completed') {
+              setTimeout(() => {
+                fetchScore(targetId, true)
+              }, 400)
+            }
           }
         } catch (e) {
           console.warn('Failed to parse final buffer:', e)
