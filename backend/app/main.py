@@ -633,6 +633,7 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
     # Determine user position and number of rounds from debate
     user_is_for = "User: for" in (debate.title or "").lower() or "(User: FOR" in (debate.title or "")
     num_rounds = debate.num_rounds
+    is_casual_mode = debate.mode == "casual"
 
     # Check if this is an opening speech (user went first with only one speech delivered)
     user_went_first = messages[0].speaker == "user" if messages else False
@@ -646,18 +647,42 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
         "Your task is to evaluate ONLY the HUMAN DEBATER's performance (messages labeled 'USER'). Do NOT evaluate the AI's performance.\n"
         "Only quote and reference statements made by USER, not ASSISTANT.\n\n"
         f"Context: The human debater (USER) is {'FOR' if user_is_for else 'AGAINST'} the motion. The debate has {num_rounds} round(s).\n"
+        f"Debate mode: {'CASUAL (practice/learning mode - be more lenient and encouraging)' if is_casual_mode else 'PARLIAMENTARY (competitive mode - use standard tournament scoring)'}\n"
         f"Speech type: {'OPENING SPEECH (user went first, no opponent speech yet)' if is_opening_speech else 'REBUTTAL/RESPONSE (opponent has spoken)'}\n\n"
         "Score the human on these metrics (0-10 each, integers only):\n"
         "1. Content & Structure – arguments are understandable and well-explained; logical links are explicit; easy to follow; jargon is handled; clear signposting/roadmap.\n"
         "2. Engagement/Opening Quality – (see scoring rule below - changes based on speech type)\n"
         "3. Strategy – prioritizes win conditions; allocates time well across offense/defense; collapses to strongest arguments; avoids overinvesting in weak lines.\n\n"
-
-        "SCORING RUBRIC (MUST FOLLOW - use this to calibrate your scores):\n"
-        "9-10: Exceptional - Tournament-winning level. Multiple well-developed arguments with clear mechanisms, strong weighing, excellent structure.\n"
-        "7-8: Strong - Clearly competitive. Good arguments with logical development, decent engagement/weighing, mostly clear structure.\n"
-        "5-6: Adequate - Makes reasonable arguments that support their side. Some logical development, basic engagement if applicable, understandable structure.\n"
-        "3-4: Developing - Has noticeable flaws but shows genuine effort. Arguments present but underdeveloped, weak engagement, unclear structure.\n"
-        "1-2: Weak - Minimal substantive engagement. Very underdeveloped or off-topic.\n\n"
+    )
+    
+    # Add mode-specific scoring rubric
+    if is_casual_mode:
+        system_prompt += (
+            "CASUAL MODE SCORING RUBRIC (MUST FOLLOW - be GENEROUS and ENCOURAGING):\n"
+            "This is a practice/learning mode. The goal is to encourage improvement, not tournament-level precision.\n"
+            "ADJUST YOUR SCORING TO BE MORE LENIENT:\n"
+            "- Add +1 to +2 points to each metric score compared to what you would give in parliamentary mode\n"
+            "- Focus on what the user did well and be encouraging\n"
+            "- Only give scores below 5 if the response is completely off-topic or incoherent\n"
+            "- If the user makes ANY reasonable attempt to engage with the topic, start from at least 5-6\n"
+            "- If the user shows genuine effort and makes arguments that support their side, score 6-7 minimum\n"
+            "- Reserve scores 8-10 for clearly strong performances, but be generous with 7-8 for decent attempts\n\n"
+            "SCORING RANGES FOR CASUAL MODE:\n"
+            "9-10: Strong performance - Well-developed arguments, good structure, clear engagement. Give this generously for solid work.\n"
+            "7-8: Good performance - Reasonable arguments with some development, decent structure, attempts at engagement. This should be the DEFAULT for genuine effort.\n"
+            "5-6: Adequate performance - Makes arguments that support their side, shows understanding of the topic, basic structure. Give this for any reasonable attempt.\n"
+            "3-4: Developing - Shows effort but needs work. Only use if arguments are very underdeveloped or unclear.\n"
+            "1-2: Weak - Only use for completely off-topic, incoherent, or no substantive content.\n\n"
+        )
+    else:
+        system_prompt += (
+            "SCORING RUBRIC (MUST FOLLOW - use this to calibrate your scores):\n"
+            "9-10: Exceptional - Tournament-winning level. Multiple well-developed arguments with clear mechanisms, strong weighing, excellent structure.\n"
+            "7-8: Strong - Clearly competitive. Good arguments with logical development, decent engagement/weighing, mostly clear structure.\n"
+            "5-6: Adequate - Makes reasonable arguments that support their side. Some logical development, basic engagement if applicable, understandable structure.\n"
+            "3-4: Developing - Has noticeable flaws but shows genuine effort. Arguments present but underdeveloped, weak engagement, unclear structure.\n"
+            "1-2: Weak - Minimal substantive engagement. Very underdeveloped or off-topic.\n\n"
+        )
 
         "STRATEGY SCORING GUIDELINES (MUST FOLLOW):\n"
         "- Strategy is hard to judge perfectly, so be generous with scoring:\n"
@@ -707,7 +732,7 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
         "- Do NOT use generic phrases like 'well articulated', 'clear point', 'add evidence' unless immediately followed by a specific example.\n"
 
         "Provide:\n"
-        "- `overall_score`: holistic score (0-10) for the human debater. Weighted average: 40% content, 30% strategy, 30% Engagement\n"
+        f"- `overall_score`: holistic score (0-10) for the human debater. Weighted average: 40% content, 30% strategy, 30% Engagement{' (CASUAL MODE: Add +1 to +1.5 to the calculated weighted average to be more encouraging)' if is_casual_mode else ''}\n"
         "`feedback` must be 4–6 sentences total and follow this structure:\n"
         "Sentence 1: Biggest strength + quote/behavior + why it matters strategically.\n"
         "Sentence 2: Second strength + quote/behavior + why it matters.\n"
@@ -803,13 +828,35 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
         print(f"[WARNING] Unexpected type for '{key}': {type(value)}, value: {value}")
         return default
 
+    # Get raw scores from LLM
+    raw_content = _get_float("content_structure_score")
+    raw_engagement = _get_float("engagement_score")
+    raw_strategy = _get_float("strategy_score")
+    raw_overall = _get_float("overall_score")
+    
+    # Apply casual mode bonus: add 1.0-1.5 points to each metric and overall score
+    # This makes casual mode scoring more lenient and encouraging
+    if is_casual_mode:
+        # Add bonus points, but cap at 10.0
+        content_bonus = min(1.5, max(0.5, (5.0 - raw_content) * 0.3))  # More bonus for lower scores
+        engagement_bonus = min(1.5, max(0.5, (5.0 - raw_engagement) * 0.3))
+        strategy_bonus = min(1.5, max(0.5, (5.0 - raw_strategy) * 0.3))
+        overall_bonus = min(1.5, max(0.5, (5.0 - raw_overall) * 0.3))
+        
+        raw_content = min(10.0, raw_content + content_bonus)
+        raw_engagement = min(10.0, raw_engagement + engagement_bonus)
+        raw_strategy = min(10.0, raw_strategy + strategy_bonus)
+        raw_overall = min(10.0, raw_overall + overall_bonus)
+        
+        print(f"[DEBUG] Casual mode bonus applied: content +{content_bonus:.1f}, engagement +{engagement_bonus:.1f}, strategy +{strategy_bonus:.1f}, overall +{overall_bonus:.1f}")
+    
     metrics = ScoreMetrics(
-        content_structure=round(_get_float("content_structure_score"), 1),
-        engagement=round(_get_float("engagement_score"), 1),
-        strategy=round(_get_float("strategy_score"), 1),
+        content_structure=round(raw_content, 1),
+        engagement=round(raw_engagement, 1),
+        strategy=round(raw_strategy, 1),
     )
 
-    overall = round(_get_float("overall_score"), 1)
+    overall = round(raw_overall, 1)
 
     # Extract weakness_type with validation
     weakness_type_raw = parsed.get("weakness_type", "").lower()

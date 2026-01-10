@@ -323,7 +323,19 @@ function App() {
     }
     try {
       const response = await fetchWithTimeout(`${API_BASE}/v1/debates/${targetId}`, {}, 30000) // 30 second timeout
-      if (!response.ok) throw new Error('Failed to fetch debate')
+      if (!response.ok) {
+        if (response.status === 404) {
+          toast.error('Debate not found. Redirecting to new debate page.')
+          // Reset state and redirect
+          setDebateId(null)
+          setDebate(null)
+          setMessages([])
+          setSetupComplete(false)
+          navigate('/new-debate', { replace: true })
+          return null
+        }
+        throw new Error('Failed to fetch debate')
+      }
       const data = await response.json()
       setDebate(data)
       setMessages(data.messages || [])
