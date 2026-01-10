@@ -1346,7 +1346,7 @@ function App() {
               <div className="score-card">
                 <p className="muted">
                   {scoring
-                    ? 'Calculating score... (this usually takes 15-30 seconds)'
+                    ? 'Our AI judge is reviewing your arguments... This might take a moment! ⚖️'
                     : scoreError
                       ? `Unable to load score: ${scoreError}`
                       : 'Score not available yet.'}
