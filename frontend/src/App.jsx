@@ -416,21 +416,35 @@ function App() {
       setScore(null)
       setScoreError(null)
 
-      // Track debate creation in Vercel Analytics
-      // Do this after setting up state, but before AI turn generation
+      // Navigate to debate page first to establish the route
       const debateUrl = `/debate/${data.id}`
+      navigate(debateUrl, { replace: false })
       
-      // If assistant starts, generate their first turn first
-      // Then do tracking after a delay to avoid interrupting AI generation
+      // If assistant starts, generate their first turn
+      // Don't set loading to false yet - let generateAITurn handle the loading state
       if (starter === 'assistant') {
-        setTimeout(() => generateAITurn(data.id), 100)
-        // Track after AI turn generation starts
+        // Wait a bit for navigation to complete, then generate AI turn
+        // Track debate creation after AI turn completes to avoid flicker
+        setTimeout(() => {
+          generateAITurn(data.id).then(() => {
+            // Track debate creation after first AI turn completes
+            setTimeout(() => {
+              navigate(`/track/debate-created?return=${encodeURIComponent(debateUrl)}`, { replace: false })
+            }, 300)
+          }).catch(() => {
+            // If AI turn fails, still track debate creation
+            setTimeout(() => {
+              navigate(`/track/debate-created?return=${encodeURIComponent(debateUrl)}`, { replace: false })
+            }, 300)
+          })
+        }, 150)
+      } else {
+        // If user starts, we can set loading to false and track immediately
+        setLoading(false)
+        // Track after a small delay to let navigation settle
         setTimeout(() => {
           navigate(`/track/debate-created?return=${encodeURIComponent(debateUrl)}`, { replace: false })
         }, 200)
-      } else {
-        // If user starts, track immediately
-        navigate(`/track/debate-created?return=${encodeURIComponent(debateUrl)}`, { replace: false })
       }
     } catch (error) {
       console.error('Error starting debate:', error)
@@ -442,9 +456,10 @@ function App() {
       } else {
         toast.error('Something went wrong. Please try again.')
       }
-    } finally {
       setLoading(false)
     }
+    // Note: Don't set loading to false in finally block when assistant starts,
+    // as generateAITurn needs to manage loading state
   }
 
   const transcribeAudio = async (file) => {
@@ -657,6 +672,10 @@ function App() {
         created_at: new Date().toISOString(),
       }
       
+      // Check if this is the first turn (before updating state)
+      // First turn is when round is 1 and there are no existing messages
+      const isFirstTurn = aiTurnData.round_no === 1 && messages.length === 0
+      
       // Update states together synchronously to prevent flicker
       // React 18+ automatically batches these synchronous state updates into a single render
       // This ensures the message appears at the same time loading disappears
@@ -679,13 +698,15 @@ function App() {
       }
       
       // Track AI turn in Vercel Analytics after state updates and score calculation
-      // Skip tracking for completed debates to avoid interrupting score display
-      if (targetId && location.pathname === `/debate/${targetId}` && aiTurnData.status !== 'completed') {
+      // Skip tracking for:
+      // 1. Completed debates (to avoid interrupting score display)
+      // 2. First AI turn (to prevent flicker on initial message)
+      if (targetId && location.pathname === `/debate/${targetId}` && aiTurnData.status !== 'completed' && !isFirstTurn) {
         const debateUrl = `/debate/${targetId}`
-        // Use setTimeout to defer tracking so it doesn't interrupt UI updates
+        // Use longer delay for smoother UX
         setTimeout(() => {
           navigate(`/track/ai-turn?return=${encodeURIComponent(debateUrl)}`, { replace: false })
-        }, 200)
+        }, 500)
       }
     } catch (error) {
       console.error('Error generating AI turn:', error)
