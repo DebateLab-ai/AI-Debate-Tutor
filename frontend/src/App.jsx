@@ -657,10 +657,11 @@ function App() {
         created_at: new Date().toISOString(),
       }
       
-      // Update messages state immediately
+      // Update states together synchronously to prevent flicker
+      // React 18+ automatically batches these synchronous state updates into a single render
+      // This ensures the message appears at the same time loading disappears
+      setLoading(false)
       setMessages(prev => [...prev, newMessage])
-      
-      // Update debate state from the response
       setDebate(prev => prev ? {
         ...prev,
         current_round: aiTurnData.current_round,
@@ -669,19 +670,22 @@ function App() {
       } : null)
       
       // If debate completed, compute the score first (POST directly since we know it doesn't exist yet)
-      // Do this before tracking to ensure score calculation isn't interrupted
+      // Do this after state updates to avoid interrupting the message display
       if (aiTurnData.status === 'completed') {
-        await fetchScore(targetId, true)
+        // Use setTimeout to defer score fetch slightly so message appears first
+        setTimeout(() => {
+          fetchScore(targetId, true)
+        }, 400)
       }
       
       // Track AI turn in Vercel Analytics after state updates and score calculation
       // Skip tracking for completed debates to avoid interrupting score display
       if (targetId && location.pathname === `/debate/${targetId}` && aiTurnData.status !== 'completed') {
         const debateUrl = `/debate/${targetId}`
-        // Use setTimeout to defer tracking slightly so it doesn't interrupt UI updates
+        // Use setTimeout to defer tracking so it doesn't interrupt UI updates
         setTimeout(() => {
           navigate(`/track/ai-turn?return=${encodeURIComponent(debateUrl)}`, { replace: false })
-        }, 100)
+        }, 200)
       }
     } catch (error) {
       console.error('Error generating AI turn:', error)
@@ -693,7 +697,6 @@ function App() {
       } else {
         toast.error('Unable to generate AI response. Please try again.')
       }
-    } finally {
       setLoading(false)
     }
   }

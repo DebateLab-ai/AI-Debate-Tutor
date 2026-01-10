@@ -700,21 +700,23 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
     # Add mode-specific scoring rubric
     if is_casual_mode:
         system_prompt += (
-            "CASUAL MODE SCORING RUBRIC (MUST FOLLOW - be GENEROUS and ENCOURAGING):\n"
+            "CASUAL MODE SCORING RUBRIC (MUST FOLLOW - be GENEROUS but still ACCURATE):\n"
             "This is a practice/learning mode. The goal is to encourage improvement, not tournament-level precision.\n"
-            "ADJUST YOUR SCORING TO BE MORE LENIENT:\n"
-            "- Add +1 to +2 points to each metric score compared to what you would give in parliamentary mode\n"
-            "- Focus on what the user did well and be encouraging\n"
-            "- Only give scores below 5 if the response is completely off-topic or incoherent\n"
-            "- If the user makes ANY reasonable attempt to engage with the topic, start from at least 5-6\n"
-            "- If the user shows genuine effort and makes arguments that support their side, score 6-7 minimum\n"
-            "- Reserve scores 8-10 for clearly strong performances, but be generous with 7-8 for decent attempts\n\n"
+            "HOWEVER: Relevance and topic engagement are still CRITICAL even in casual mode.\n\n"
+            "SCORING GUIDELINES FOR CASUAL MODE:\n"
+            "- If the message is IRRELEVANT to the topic or doesn't address the debate motion → score 2-4 (don't inflate these!)\n"
+            "- If the message is partially relevant but off-topic → score 4-5\n"
+            "- If the message addresses the topic but is weak/unclear → score 5-6\n"
+            "- If the message is relevant and makes reasonable arguments → score 6-7\n"
+            "- If the message is relevant and well-developed → score 7-9\n"
+            "- Only give 9-10 for clearly strong, relevant, well-structured performances\n\n"
+            "BE GENEROUS with structure and effort, but STRICT about relevance. An irrelevant message should NOT get above 4-5 even in casual mode.\n\n"
             "SCORING RANGES FOR CASUAL MODE:\n"
-            "9-10: Strong performance - Well-developed arguments, good structure, clear engagement. Give this generously for solid work.\n"
-            "7-8: Good performance - Reasonable arguments with some development, decent structure, attempts at engagement. This should be the DEFAULT for genuine effort.\n"
-            "5-6: Adequate performance - Makes arguments that support their side, shows understanding of the topic, basic structure. Give this for any reasonable attempt.\n"
-            "3-4: Developing - Shows effort but needs work. Only use if arguments are very underdeveloped or unclear.\n"
-            "1-2: Weak - Only use for completely off-topic, incoherent, or no substantive content.\n\n"
+            "9-10: Strong performance - Relevant, well-developed arguments, good structure, clear engagement.\n"
+            "7-8: Good performance - Relevant arguments with reasonable development, decent structure, clear topic engagement.\n"
+            "5-6: Adequate performance - Relevant to topic, makes arguments that support their side, basic structure, some understanding.\n"
+            "3-4: Developing or OFF-TOPIC - Partially relevant but missing the point, OR shows effort but very unclear/underdeveloped.\n"
+            "1-2: Weak or IRRELEVANT - Completely off-topic, incoherent, no substantive content, or doesn't address the debate motion.\n\n"
         )
     else:
         system_prompt += (
@@ -877,21 +879,39 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
     raw_strategy = _get_float("strategy_score")
     raw_overall = _get_float("overall_score")
     
-    # Apply casual mode bonus: add 1.0-1.5 points to each metric and overall score
-    # This makes casual mode scoring more lenient and encouraging
+    # Apply casual mode bonus: add 0.2-0.5 points, but ONLY if the score is already reasonable
+    # Don't inflate irrelevant or very poor responses - relevance still matters!
     if is_casual_mode:
-        # Add bonus points, but cap at 10.0
-        content_bonus = min(1.5, max(0.5, (5.0 - raw_content) * 0.3))  # More bonus for lower scores
-        engagement_bonus = min(1.5, max(0.5, (5.0 - raw_engagement) * 0.3))
-        strategy_bonus = min(1.5, max(0.5, (5.0 - raw_strategy) * 0.3))
-        overall_bonus = min(1.5, max(0.5, (5.0 - raw_overall) * 0.3))
+        # Only apply bonus if raw score is >= 5 (meaning it's at least adequate/relevant)
+        # For lower scores (< 5), don't apply bonus - these are likely irrelevant or off-topic
+        if raw_content >= 5.0:
+            content_bonus = min(0.5, max(0.2, 0.2 + (6.0 - raw_content) * 0.06))
+            raw_content = min(10.0, raw_content + content_bonus)
+        else:
+            content_bonus = 0.0
+            
+        if raw_engagement >= 5.0:
+            engagement_bonus = min(0.5, max(0.2, 0.2 + (6.0 - raw_engagement) * 0.06))
+            raw_engagement = min(10.0, raw_engagement + engagement_bonus)
+        else:
+            engagement_bonus = 0.0
+            
+        if raw_strategy >= 5.0:
+            strategy_bonus = min(0.5, max(0.2, 0.2 + (6.0 - raw_strategy) * 0.06))
+            raw_strategy = min(10.0, raw_strategy + strategy_bonus)
+        else:
+            strategy_bonus = 0.0
+            
+        if raw_overall >= 5.0:
+            overall_bonus = min(0.5, max(0.2, 0.2 + (6.0 - raw_overall) * 0.06))
+            raw_overall = min(10.0, raw_overall + overall_bonus)
+        else:
+            overall_bonus = 0.0
         
-        raw_content = min(10.0, raw_content + content_bonus)
-        raw_engagement = min(10.0, raw_engagement + engagement_bonus)
-        raw_strategy = min(10.0, raw_strategy + strategy_bonus)
-        raw_overall = min(10.0, raw_overall + overall_bonus)
-        
-        print(f"[DEBUG] Casual mode bonus applied: content +{content_bonus:.1f}, engagement +{engagement_bonus:.1f}, strategy +{strategy_bonus:.1f}, overall +{overall_bonus:.1f}")
+        if content_bonus > 0 or engagement_bonus > 0 or strategy_bonus > 0 or overall_bonus > 0:
+            print(f"[DEBUG] Casual mode bonus applied: content +{content_bonus:.1f}, engagement +{engagement_bonus:.1f}, strategy +{strategy_bonus:.1f}, overall +{overall_bonus:.1f}")
+        else:
+            print(f"[DEBUG] Casual mode: No bonus applied (scores < 5 indicate irrelevant/poor quality responses)")
     
     metrics = ScoreMetrics(
         content_structure=round(raw_content, 1),
