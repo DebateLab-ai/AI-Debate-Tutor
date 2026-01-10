@@ -9,11 +9,11 @@ import json
 from uuid import uuid4, UUID
 from dotenv import load_dotenv
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI, HTTPException, Request, status, Query
 from fastapi import UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 # Import RAG functionality
@@ -720,12 +720,12 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
         )
     else:
         system_prompt += (
-            "SCORING RUBRIC (MUST FOLLOW - use this to calibrate your scores):\n"
-            "9-10: Exceptional - Tournament-winning level. Multiple well-developed arguments with clear mechanisms, strong weighing, excellent structure.\n"
-            "7-8: Strong - Clearly competitive. Good arguments with logical development, decent engagement/weighing, mostly clear structure.\n"
-            "5-6: Adequate - Makes reasonable arguments that support their side. Some logical development, basic engagement if applicable, understandable structure.\n"
-            "3-4: Developing - Has noticeable flaws but shows genuine effort. Arguments present but underdeveloped, weak engagement, unclear structure.\n"
-            "1-2: Weak - Minimal substantive engagement. Very underdeveloped or off-topic.\n\n"
+        "SCORING RUBRIC (MUST FOLLOW - use this to calibrate your scores):\n"
+        "9-10: Exceptional - Tournament-winning level. Multiple well-developed arguments with clear mechanisms, strong weighing, excellent structure.\n"
+        "7-8: Strong - Clearly competitive. Good arguments with logical development, decent engagement/weighing, mostly clear structure.\n"
+        "5-6: Adequate - Makes reasonable arguments that support their side. Some logical development, basic engagement if applicable, understandable structure.\n"
+        "3-4: Developing - Has noticeable flaws but shows genuine effort. Arguments present but underdeveloped, weak engagement, unclear structure.\n"
+        "1-2: Weak - Minimal substantive engagement. Very underdeveloped or off-topic.\n\n"
         )
 
     system_prompt += (
@@ -912,7 +912,7 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
             print(f"[DEBUG] Casual mode bonus applied: content +{content_bonus:.1f}, engagement +{engagement_bonus:.1f}, strategy +{strategy_bonus:.1f}, overall +{overall_bonus:.1f}")
         else:
             print(f"[DEBUG] Casual mode: No bonus applied (scores < 5 indicate irrelevant/poor quality responses)")
-    
+
     metrics = ScoreMetrics(
         content_structure=round(raw_content, 1),
         engagement=round(raw_engagement, 1),
@@ -1060,8 +1060,329 @@ class AutoTurnOut(BaseModel):
     current_round: int
     status: Status
 
-@app.post("/v1/debates/{debate_id}/auto-turn", response_model=AutoTurnOut)
-def auto_turn(debate_id: UUID):
+def generate_ai_turn_text_stream_sync(debate: Debate, messages: List[Message]):
+    """
+    Generator for streaming AI text synchronously.
+    Yields chunks of text as they arrive from OpenAI API.
+    Uses the same prompt structure and RAG logic as generate_ai_turn_text for consistency.
+    """
+    motion = debate.title if debate.title else "General debate topic"
+    use_rag = debate.mode == "parliamentary" and rag_system is not None
+    
+    # If we have RAG, parliamentary mode, and this is a rebuttal (not the first turn)
+    if use_rag and len(messages) > 0:
+        side = "Opposition" if debate.starter == "user" else "Government"
+        opponent_messages = [m for m in messages if m.speaker != "assistant"]
+        if opponent_messages:
+            last_opponent = opponent_messages[-1]
+            # Retrieve RAG context (same as generate_rebuttal_speech)
+            hits = rag_system.retriever.query(motion, top_k=6) if rag_system.retriever else []
+            hits = [(d, s) for (d, s) in hits if s >= 0.1]
+            
+            # Format context block (same as _format_context_blocks)
+            if not hits:
+                context_block = "BACKGROUND KNOWLEDGE (DO NOT CITE): None\n"
+            else:
+                blocks = [doc.text for doc, score in hits]
+                context_block = (
+                    "BACKGROUND KNOWLEDGE (DO NOT CITE AS 'RESEARCH' OR 'STUDIES'):\n"
+                    "Use the logical reasoning below, but present it as YOUR OWN first-principles analysis.\n"
+                    "NEVER say 'research shows' or 'studies indicate' - treat this as common knowledge.\n"
+                    "=======\n" + "\n\n".join(blocks)
+                )
+            
+            # Dynamic temperature (same as generate_rebuttal_speech)
+            if len(hits) >= 3:
+                adaptive_temp = 0.3
+            elif len(hits) == 0:
+                adaptive_temp = 0.8
+            else:
+                ratio = len(hits) / 3.0
+                adaptive_temp = 0.3 + (0.8 - 0.3) * (1 - ratio)
+            
+            # Use REBUTTAL_PROMPT_TMPL structure (same as generate_rebuttal_speech)
+            # System prompt matches rag._call_llm() from response.py
+            sys = "You are a world-class competitive debater. Your goal is to WIN through sharp, incisive argumentation—not through aggression. Be strategic, precise, and respectful. When you have context from the corpus, use it to build airtight cases. When context has gaps, fill them with compelling real-world examples that any educated voter would recognize—think NYT front page, not academic journals. Use concrete mechanisms and numbers. Make clear, fair comparisons that demonstrate why your case is stronger. Sound like a human champion debater who wins through superior logic and analysis, not an essay or a robot."
+            prompt_now = f"""You are a {side} debater. Motion: {motion}
+
+OTHER SIDE'S SPEECH:
+{last_opponent.content}
+
+{context_block}
+
+HARD RULE - OPPONENT IDENTIFICATION:
+- NEVER say "my opponent", "the opponent", or "they/them" when referring to the other side
+- ALWAYS identify them as "the proposition" (if arguing FOR the motion) or "the opposition" (if arguing AGAINST the motion)
+- Examples: "the proposition claims...", "the opposition argues...", "the proposition's case..."
+
+REQUIREMENTS:
+1. MATCH DEPTH: If they made 3 developed points, you make 3-4.
+2. ACCURACY (CRITICAL - MUST FOLLOW): Only address what they ACTUALLY said. Never invent arguments.
+   - If you mention something they said, you MUST be able to quote or point to the exact words from their speech
+   - If they didn't mention X, do NOT say "they claim X" or "they argue X" or respond to X
+   - Review their speech carefully - only respond to what is actually written there
+   - When rebutting, quote or paraphrase their actual words explicitly
+3. GROUP BY THEME: Organize rebuttals by big-picture themes, not point-by-point.
+4. FIRST PRINCIPLES: Build each response like a mathematical proof - state premise, derive conclusions step-by-step where each step FOLLOWS NECESSARILY from the previous.
+5. WELL-KNOWN EXAMPLES ONLY: Use Amazon, COVID-19, major events laypeople know.
+6. VARY LANGUAGE: Signpost clearly but naturally - don't robotically repeat "firstly... secondly...". Try "To start...", "Moving to...", "Beyond that...".
+7. WEIGH CONSTANTLY: Compare throughout using "on our side vs their side", "even if we concede X, we still win because Y"
+
+HARD RULE - NEW ARGUMENT COUNT:
+- Count their arguments in their speech
+- Make at least ONE new constructive argument, but NO MORE than their count
+- Examples: They made 1 arg → you make 1. They made 2 → you make 1-2. They made 3 → you make 1-3.
+- This ensures you focus on rebuttal while still extending the debate proportionally
+
+CRITICAL - NEVER CITE SOURCES:
+- DO NOT say "research by X", "studies show", "according to Y", "evidence suggests", "data indicates"
+- Even if BACKGROUND KNOWLEDGE is provided, present the reasoning as YOUR OWN logical analysis
+- Treat all information as common knowledge and first-principles reasoning
+- Debate is about LOGIC, not citations
+"""
+            
+            convo = []  # RAG prompts don't use conversation history in the same way
+            temperature = adaptive_temp
+            max_tokens = None
+            
+    # If this is the first turn and we have RAG (parliamentary mode)
+    elif use_rag and len(messages) == 0:
+        side = "Government" if debate.starter == "assistant" else "Opposition"
+        # Retrieve RAG context (same as generate_debate_with_coach_loop)
+        hits = rag_system.retriever.query(motion, top_k=6) if rag_system.retriever else []
+        hits = [(d, s) for (d, s) in hits if s >= 0.1]
+        
+        # Format context block
+        if not hits:
+            context_block = "BACKGROUND KNOWLEDGE (DO NOT CITE): None\n"
+        else:
+            blocks = [doc.text for doc, score in hits]
+            context_block = (
+                "BACKGROUND KNOWLEDGE (DO NOT CITE AS 'RESEARCH' OR 'STUDIES'):\n"
+                "Use the logical reasoning below, but present it as YOUR OWN first-principles analysis.\n"
+                "NEVER say 'research shows' or 'studies indicate' - treat this as common knowledge.\n"
+                "=======\n" + "\n\n".join(blocks)
+            )
+        
+        # Dynamic temperature (same as generate_debate_with_coach_loop)
+        if len(hits) >= 1:
+            adaptive_temp = 0.3  # temp_low - good context found
+        elif len(hits) == 0:
+            adaptive_temp = 0.8  # temp_high - no corpus hits
+        else:
+            # This branch is actually unreachable, but keeping for consistency with original
+            ratio = len(hits) / 3.0
+            adaptive_temp = 0.3 + (0.8 - 0.3) * (1 - ratio)
+        
+        # Use SPEECH_PROMPT_TMPL structure
+        # System prompt matches rag._call_llm() from response.py
+        sys = "You are a world-class competitive debater. Your goal is to WIN through sharp, incisive argumentation—not through aggression. Be strategic, precise, and respectful. When you have context from the corpus, use it to build airtight cases. When context has gaps, fill them with compelling real-world examples that any educated voter would recognize—think NYT front page, not academic journals. Use concrete mechanisms and numbers. Make clear, fair comparisons that demonstrate why your case is stronger. Sound like a human champion debater who wins through superior logic and analysis, not an essay or a robot."
+        prompt_now = f"""You are delivering a WSDC {side} speech. Motion: {motion}
+
+CRITICAL: You are arguing on the {side} side. If you are Government, you SUPPORT the motion. If you are Opposition, you OPPOSE the motion. All your arguments must align with this position.
+
+{context_block}
+
+HARD RULE - OPPONENT IDENTIFICATION:
+- NEVER say "my opponent", "the opponent", or "they/them" when referring to the other side
+- ALWAYS identify them as "the proposition" (if arguing FOR the motion) or "the opposition" (if arguing AGAINST the motion)
+- Examples: "the proposition will claim...", "the opposition might argue...", "the proposition's case..."
+
+STRUCTURE:
+1. ROADMAP (1-2 sentences): Flag your case structure. Vary language naturally. NO greetings.
+2. OPENING (2-3 sentences): Hook with well-known example, pose the key question.
+3. FRAMING & BURDENS (3-4 sentences): Define lens and establish burdens strategically.
+4. CONTENTIONS (1-3 arguments):
+   Each needs: PREMISE → MECHANISMS (2-3) → WEIGHING → optional PRE-EMPTION
+
+   Mechanisms must:
+   - Be INDEPENDENT causal pathways
+   - Build from FIRST PRINCIPLES like a math proof: state premise, derive each step where steps FOLLOW NECESSARILY
+   - Use 2-3 sentences each: causal chain + elaboration
+   - Vary signposting ("To start...", "Beyond that..." not "First... Second...")
+
+5. CONCLUSION (3-5 sentences): Collapse to key question and why you win.
+
+CRITICAL RULES:
+- WELL-KNOWN EXAMPLES ONLY: Amazon, iPhone, COVID-19, major events laypeople know
+- FIRST PRINCIPLES: Each logical step must follow necessarily from the previous. No leaps.
+- VARY LANGUAGE: Don't robotically repeat "firstly... secondly...". Sound human.
+- Zero filler, sound like SPEAKING not essay
+
+NEVER CITE SOURCES - THIS IS CRITICAL:
+- DO NOT say "research by X", "studies show", "according to Y", "evidence suggests", "data indicates", "as reported by"
+- Even if BACKGROUND KNOWLEDGE is provided, present it as YOUR OWN first-principles logical reasoning
+- Treat all information as common knowledge you're deriving from first principles
+- Debate is about LOGIC, not who cites more sources
+"""
+        
+        convo = []
+        temperature = adaptive_temp
+        max_tokens = None
+    
+    else:
+        # Fallback: use same logic as generate_ai_turn_text (casual mode or no RAG)
+        topic_context = f"Debate topic: {motion}"
+        
+        if debate.mode == "casual":
+            sys = """Sharp and confrontational. Match their depth.
+
+CRITICAL RULE - ACCURACY (MUST FOLLOW):
+- ONLY address arguments they ACTUALLY made in their message
+- NEVER invent, assume, or respond to arguments they did NOT make
+- If you want to address a point, you MUST be able to quote or reference the exact words they used
+- If they didn't mention something, DO NOT act like they did
+- When rebutting, explicitly reference what they said: "The proposition claims X..." where X is their actual words
+
+HARD RULE - OPPONENT IDENTIFICATION:
+- NEVER say "my opponent" or "the opponent"
+- ALWAYS identify them as "the proposition" or "the opposition" based on their side
+- If they are arguing FOR the motion, call them "the proposition"
+- If they are arguing AGAINST the motion, call them "the opposition"
+
+Build from FIRST PRINCIPLES: state premise, derive each step logically where each step FOLLOWS NECESSARILY from the previous.
+Use ONLY well-known examples (Amazon, iPhone, COVID-19). NEVER "research by X showed Y".
+Always weigh. No filler. Vary your language. Do NOT include tags like "[Round X · ASSISTANT]" in your response."""
+        else:
+            sys = """You are a competitive debater. Win through sharp logic, not aggression.
+
+CRITICAL RULE - ACCURACY (MUST FOLLOW):
+- ONLY address arguments they ACTUALLY made in their messages
+- NEVER invent, assume, or respond to arguments they did NOT make
+- If you want to address a point, you MUST be able to quote or reference the exact words they used
+- If they didn't mention something, DO NOT act like they did
+- When rebutting, explicitly reference what they said with quotes or specific paraphrases
+- Review the conversation history carefully - only respond to what is actually there
+
+HARD RULE - OPPONENT IDENTIFICATION:
+- NEVER say "my opponent" or "the opponent"
+- ALWAYS identify them as "the proposition" or "the opposition" based on their side
+- If they are arguing FOR the motion, call them "the proposition"
+- If they are arguing AGAINST the motion, call them "the opposition"
+
+REQUIREMENTS:
+- Match their depth/detail (if they wrote 3 developed arguments, you write 3-4)
+- Only rebut what they ACTUALLY said - no invented arguments
+- HARD RULE FOR OPPOSITION: Make at least ONE new argument, but NO MORE than their number of arguments. If they made 2 arguments, you make 1-2 new arguments (not 0, not 3+).
+- Build from FIRST PRINCIPLES: state premise, derive each step logically where each step FOLLOWS NECESSARILY from the previous. No logical leaps.
+- Show causal chains step-by-step
+- Use ONLY well-known examples (Amazon, iPhone, COVID-19, major events). NEVER cite "research by X showed Y"
+- Weigh constantly using probability/magnitude/timeframe
+- Signpost clearly but vary language naturally
+- Sound like spoken debate, not essay. No filler. Do NOT include tags like "[Round X · ASSISTANT]" in your response."""
+        
+        convo = []
+        for m in messages:
+            role = "user" if m.speaker == "user" else "assistant"
+            tag = f"[Round {m.round_no} · {m.speaker.upper()}]"
+            convo.append({"role": role, "content": f"{tag} {m.content}"})
+        
+        opponent_messages = [m for m in messages if m.speaker != debate.next_speaker]
+        if opponent_messages:
+            if debate.mode == "casual":
+                last_user_msg = opponent_messages[-1].content if opponent_messages else ""
+                prompt_now = f"""Topic: {topic_context}
+Round {debate.current_round} of {debate.num_rounds}
+
+CRITICAL: Here is what they ACTUALLY said (respond ONLY to this, nothing else):
+"{last_user_msg}"
+
+HARD RULE - ACCURACY:
+- ONLY rebut arguments that appear in the text above
+- If you mention something they said, you MUST be able to point to where they said it
+- NEVER respond to arguments they did NOT make
+- If they didn't mention X, do NOT say "they claim X" or "they argue X"
+- When rebutting, quote or paraphrase their actual words
+
+Respond (max 2 paragraphs). Start with roadmap. Build from FIRST PRINCIPLES: identify their premise → show why it fails step-by-step (each step follows necessarily) → establish your premise → derive conclusion. Well-known examples only."""
+            else:
+                last_opponent_msg = opponent_messages[-1].content if opponent_messages else ""
+                prompt_now = f"""Motion: {topic_context}
+Round {debate.current_round} of {debate.num_rounds}
+
+CRITICAL: Here is what the opponent ACTUALLY said (respond ONLY to this):
+"{last_opponent_msg}"
+
+Deliver a rebuttal speech that:
+1. Starts with roadmap (vary language naturally)
+2. Tears down opponent's key arguments (address strongest first):
+   - ONLY rebut arguments that appear in the text above
+   - Build rebuttals from FIRST PRINCIPLES: identify their premise, show step-by-step why the logical chain breaks down
+   - When rebutting, quote or paraphrase their actual words - do NOT invent what they said
+   - Negate first (show why claim is NOT true), then mitigate (show it's smaller), then concede+outweigh
+   - Use ONLY well-known examples. NEVER cite "research by X showed Y"
+   - HARD RULE: If they didn't mention X, do NOT say "they claim X" or respond to X
+3. HARD RULE: Presents new arguments proportional to opponent's count:
+   - Count their arguments, then make at least ONE new argument, but NO MORE than they made
+   - If they made 1 arg → you make 1 new arg
+   - If they made 2 args → you make 1-2 new args
+   - If they made 3 args → you make 1-3 new args
+4. Weighs comparatively throughout
+
+Sharp, precise, rigorous. Only respond to what they actually said."""
+        else:
+            if debate.mode == "casual":
+                prompt_now = f"""Topic: {topic_context}
+Round {debate.current_round} of {debate.num_rounds}
+
+Max 2 paragraphs. Start with roadmap (vary language). Build 1+ argument from FIRST PRINCIPLES: state premise → derive each step (each follows necessarily) → conclusion. Well-known examples only. Conversational but rigorous."""
+            else:
+                prompt_now = f"""Motion: {topic_context}
+Round {debate.current_round} of {debate.num_rounds}
+
+Deliver an opening speech with this structure:
+1. Roadmap (1-2 sentences, vary language naturally)
+2. Opening hook (2-3 sentences with well-known example)
+3. Framing & burdens (define lens strategically)
+4. Contentions (1-3 arguments):
+   - Each needs: PREMISE → MECHANISMS (2-3) from FIRST PRINCIPLES → WEIGHING
+   - Build mechanisms like mathematical proofs: state premise, derive each step where each FOLLOWS NECESSARILY from previous
+   - Use 2-3 sentences per mechanism
+   - Use ONLY well-known examples (Amazon, iPhone, COVID-19). NEVER "research by X showed Y"
+5. Conclusion
+
+Compelling, rigorous, well-structured."""
+        
+        temperature = 0.7
+        max_tokens = 300 if debate.mode == "casual" else None
+    
+    # Stream the response using OpenAI API
+    if client:
+        try:
+            # Build messages list - include system message only if it's not empty
+            messages_list = convo + [{"role": "user", "content": prompt_now}]
+            if sys and sys.strip():  # Only add system message if it's not empty
+                messages_list = [{"role": "system", "content": sys}] + messages_list
+            
+            stream = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=messages_list,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=True,
+            )
+            
+            for chunk in stream:
+                if chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+        except Exception as e:
+            print(f"[ERROR] OpenAI streaming failed: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            # Fall back to non-streaming
+            ai_text = generate_ai_turn_text(debate, messages)
+            words = ai_text.split(' ')
+            for word in words:
+                yield word + ' '
+    else:
+        # Fallback - simulate streaming
+        ai_text = generate_ai_turn_text(debate, messages)
+        words = ai_text.split(' ')
+        for word in words:
+            yield word + ' '
+
+@app.post("/v1/debates/{debate_id}/auto-turn")
+def auto_turn(debate_id: UUID, stream: bool = Query(False, description="Enable streaming response")):
     debate = DEBATES.get(debate_id)
     if not debate:
         raise HTTPException(404, "Debate not found")
@@ -1071,8 +1392,39 @@ def auto_turn(debate_id: UUID):
         raise HTTPException(409, "It's not the assistant's turn.")
 
     history = MESSAGES.get(debate_id, [])
+    
+    # If streaming is requested, use streaming endpoint
+    if stream:
+        def stream_generator():
+            full_text = ""
+            try:
+                for chunk in generate_ai_turn_text_stream_sync(debate, history):
+                    full_text += chunk
+                    # Send chunk as JSON using SSE format
+                    yield f"data: {json.dumps({'chunk': chunk, 'done': False})}\n\n"
+                
+                # After streaming completes, save message and send final metadata
+                # Clean up any tags
+                full_text_clean = re.sub(r'\[Round \d+ · (ASSISTANT|USER)\]\s*', '', full_text, flags=re.IGNORECASE)
+                msg = _append_message_and_advance(debate, "assistant", full_text_clean.strip())
+                yield f"data: {json.dumps({'done': True, 'message_id': str(msg.id), 'content': msg.content, 'round_no': msg.round_no, 'next_speaker': debate.next_speaker if debate.status == 'active' else None, 'current_round': debate.current_round, 'status': debate.status})}\n\n"
+            except Exception as e:
+                print(f"[ERROR] Streaming generator failed: {e}")
+                import traceback
+                traceback.print_exc()
+                # Fallback to non-streaming on error
+                ai_text = generate_ai_turn_text(debate, history)
+                msg = _append_message_and_advance(debate, "assistant", ai_text)
+                yield f"data: {json.dumps({'done': True, 'message_id': str(msg.id), 'content': msg.content, 'round_no': msg.round_no, 'next_speaker': debate.next_speaker if debate.status == 'active' else None, 'current_round': debate.current_round, 'status': debate.status})}\n\n"
+        
+        return StreamingResponse(stream_generator(), media_type="text/event-stream", headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Disable buffering in nginx
+        })
+    
+    # Non-streaming: original behavior
     ai_text = generate_ai_turn_text(debate, history)
-
     msg = _append_message_and_advance(debate, "assistant", ai_text)
 
     return AutoTurnOut(
@@ -1083,6 +1435,7 @@ def auto_turn(debate_id: UUID):
         current_round=debate.current_round,
         status=debate.status,
     )
+
 
 # ---------- 5) Finish early ----------
 class FinishOut(BaseModel):

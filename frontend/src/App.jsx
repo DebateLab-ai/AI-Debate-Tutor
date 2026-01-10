@@ -638,71 +638,153 @@ function App() {
       return
     }
 
-    // Set loading state - but only if not already loading (prevent double state update)
+    // Check if this is the first turn (before making request)
+    const isFirstTurn = messages.length === 0
+    
+    // Set loading state - but only if not already loading (prevents flicker on first turn)
     if (!loading) {
       setLoading(true)
     }
     
+    // Create a temporary message ID for streaming
+    const tempMessageId = `temp-${Date.now()}`
+    const tempMessage = {
+      id: tempMessageId,
+      round_no: debate?.current_round || 1,
+      speaker: 'assistant',
+      content: '',
+      created_at: new Date().toISOString(),
+    }
+    
+    // Add empty message placeholder for streaming
+    setMessages(prev => [...prev, tempMessage])
+    setLoading(false) // Turn off loading so we can see the streaming message
+    
+    let streamingContent = ''
+    let finalData = null
+    
     try {
-      const response = await fetchWithTimeout(`${API_BASE}/v1/debates/${targetId}/auto-turn`, {
+      const response = await fetch(`${API_BASE}/v1/debates/${targetId}/auto-turn?stream=true`, {
         method: 'POST',
-      }, 90000) // 90 second timeout for AI generation (can be slow)
+        headers: { 'Content-Type': 'application/json' },
+      })
+      
       if (!response.ok) {
         const errorText = await response.text()
-        throw new Error(errorText)
+        throw new Error(errorText || 'Failed to generate AI response')
       }
 
-      // Get the AI response data - use it directly instead of refetching
-      const aiTurnData = await response.json()
-
-      // Create message object from the response
-      const newMessage = {
-        id: aiTurnData.message_id,
-        round_no: aiTurnData.round_no,
-        speaker: 'assistant',
-        content: aiTurnData.content,
-        created_at: new Date().toISOString(),
+      // Handle streaming response (Server-Sent Events)
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || '' // Keep incomplete line in buffer
+        
+        for (const line of lines) {
+          if (line.trim() === '') continue
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              
+              if (data.chunk) {
+                // Append chunk to streaming content
+                streamingContent += data.chunk
+                // Update the message with accumulated content
+                setMessages(prev => prev.map(msg => 
+                  msg.id === tempMessageId 
+                    ? { ...msg, content: streamingContent }
+                    : msg
+                ))
+              }
+              
+              if (data.done) {
+                // Streaming complete - save final data
+                finalData = data
+                
+                // Replace temporary message with final message
+                const finalMessage = {
+                  id: data.message_id,
+                  round_no: data.round_no,
+                  speaker: 'assistant',
+                  content: data.content || streamingContent,
+                  created_at: new Date().toISOString(),
+                }
+                
+                setMessages(prev => prev.map(msg => 
+                  msg.id === tempMessageId ? finalMessage : msg
+                ))
+                
+                // Update debate state
+                setDebate(prev => prev ? {
+                  ...prev,
+                  current_round: data.current_round,
+                  next_speaker: data.next_speaker,
+                  status: data.status,
+                } : null)
+                
+                // If debate completed, compute the score
+                if (data.status === 'completed') {
+                  setTimeout(() => {
+                    fetchScore(targetId, true)
+                  }, 400)
+                }
+                
+                // Track AI turn for subsequent turns only
+                if (targetId && location.pathname === `/debate/${targetId}` && data.status !== 'completed' && !isFirstTurn) {
+                  const debateUrl = `/debate/${targetId}`
+                  setTimeout(() => {
+                    navigate(`/track/ai-turn?return=${encodeURIComponent(debateUrl)}`, { replace: false })
+                  }, 800)
+                }
+              }
+            } catch (parseError) {
+              // Skip malformed JSON lines
+              console.warn('Failed to parse SSE data:', parseError)
+            }
+          }
+        }
       }
       
-      // Check if this is the first turn (before updating state)
-      // First turn is when round is 1 and there are no existing messages
-      const isFirstTurn = aiTurnData.round_no === 1 && messages.length === 0
-      
-      // Update states together synchronously - React 18+ automatically batches these
-      // This ensures all updates happen in a single render, preventing flicker
-      setLoading(false)
-      setMessages(prev => [...prev, newMessage])
-      setDebate(prev => prev ? {
-        ...prev,
-        current_round: aiTurnData.current_round,
-        next_speaker: aiTurnData.next_speaker,
-        status: aiTurnData.status,
-      } : null)
-      
-      // If debate completed, compute the score first (POST directly since we know it doesn't exist yet)
-      // Do this after state updates to avoid interrupting the message display
-      if (aiTurnData.status === 'completed') {
-        // Use setTimeout to defer score fetch slightly so message appears first
-        setTimeout(() => {
-          fetchScore(targetId, true)
-        }, 400)
+      // Handle any remaining buffer
+      if (buffer.trim() && buffer.startsWith('data: ')) {
+        try {
+          const data = JSON.parse(buffer.slice(6))
+          if (data.done && !finalData) {
+            finalData = data
+            const finalMessage = {
+              id: data.message_id,
+              round_no: data.round_no,
+              speaker: 'assistant',
+              content: data.content || streamingContent,
+              created_at: new Date().toISOString(),
+            }
+            setMessages(prev => prev.map(msg => 
+              msg.id === tempMessageId ? finalMessage : msg
+            ))
+            setDebate(prev => prev ? {
+              ...prev,
+              current_round: data.current_round,
+              next_speaker: data.next_speaker,
+              status: data.status,
+            } : null)
+          }
+        } catch (e) {
+          console.warn('Failed to parse final buffer:', e)
+        }
       }
-      
-      // Skip ALL tracking navigation for first turn to prevent flicker
-      // The page view for /debate/:id will be tracked by Vercel Analytics automatically
-      // We only track specific events (ai-turn) for subsequent turns
-      if (targetId && location.pathname === `/debate/${targetId}` && aiTurnData.status !== 'completed' && !isFirstTurn) {
-        const debateUrl = `/debate/${targetId}`
-        // Only track for subsequent turns, with delay to let message display smoothly
-        setTimeout(() => {
-          navigate(`/track/ai-turn?return=${encodeURIComponent(debateUrl)}`, { replace: false })
-        }, 800)
-      }
-      
-      // For first turn: Skip all tracking navigation - the page view is already tracked
-      // when user navigates to /debate/:id
     } catch (error) {
       console.error('Error generating AI turn:', error)
+      
+      // Remove temporary message on error
+      setMessages(prev => prev.filter(msg => msg.id !== tempMessageId))
+      
       // NEVER expose error.message - could contain prompts during network failures
       if (error.message && error.message.includes('timed out')) {
         toast.error('The AI response took too long. Please try again.')
