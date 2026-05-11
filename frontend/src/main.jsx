@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { Fragment } from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { HelmetProvider } from 'react-helmet-async'
@@ -19,9 +19,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <BrowserRouter>
         <Routes>
             <Route path="/" element={<LandingPage />} />
-            <Route path="/new-debate" element={<App />} />
-            <Route path="/debate/:id" element={<App />} />
-            <Route path="/debate" element={<App />} />
+            {/* One App instance for all debate flows — avoids full remount (and lost AI stream) when going /new-debate → /debate/:id */}
+            <Route element={<App />}>
+              <Route path="/new-debate" element={<Fragment />} />
+              <Route path="/debate/:id" element={<Fragment />} />
+              <Route path="/debate" element={<Fragment />} />
+            </Route>
             <Route path="/debate-drills" element={<DrillsPage />} />
             <Route path="/debate-drill-rebuttal" element={<DrillPage />} />
             <Route path="/mailing-list" element={<MailingListPage />} />

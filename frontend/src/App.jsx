@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, startTransition } from 'react'
-import { Link, useNavigate, useLocation, useParams } from 'react-router-dom'
+import { Link, useNavigate, useLocation, useParams, Outlet } from 'react-router-dom'
 import { useToast, ToastContainer } from './Toast'
 import { SEO, StructuredData, breadcrumbSchema } from './SEO'
 
@@ -890,6 +890,7 @@ function App() {
   if (!setupComplete) {
     return (
       <>
+        <Outlet />
         <SEO
           title="Start a Debate - DebateLab"
           description="Start a new debate with an AI opponent. Choose from Politics, Economics, Social, or Technology topics, or create your own. Practice your argumentation skills with instant feedback and personalized coaching."
@@ -1154,6 +1155,7 @@ function App() {
   // Debate screen
   return (
     <>
+      <Outlet />
       <SEO
         title={debate ? `${topic} - DebateLab` : "Debate - DebateLab"}
         description={debate ? `Active debate: ${topic}. Practice your argumentation skills with an AI opponent and get instant feedback on your debate performance.` : "Start a debate with an AI opponent. Practice your argumentation skills and get instant feedback."}
