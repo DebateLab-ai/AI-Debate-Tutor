@@ -210,6 +210,12 @@ function App() {
   const [mediaRecorder, setMediaRecorder] = useState(null)
   const inputRef = useRef(null)
 
+  // Prevent race conditions between streaming AI messages and route-driven refetch.
+  // When assistant is generating an opening (e.g., "against"), `fetchDebate()` can
+  // overwrite `messages` with the server's empty `messages` array.
+  const aiGenerationInProgressRef = useRef(false)
+  const aiGenerationTargetIdRef = useRef(null)
+
   // Offline detection
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   
@@ -338,7 +344,10 @@ function App() {
       }
       const data = await response.json()
       setDebate(data)
-      setMessages(data.messages || [])
+      // Preserve any optimistic/streaming messages while the AI is generating.
+      if (!(aiGenerationInProgressRef.current && aiGenerationTargetIdRef.current === targetId)) {
+        setMessages(data.messages || [])
+      }
 
       if (
         data.status === 'completed' &&
@@ -642,6 +651,9 @@ function App() {
       return
     }
 
+    aiGenerationInProgressRef.current = true
+    aiGenerationTargetIdRef.current = targetId
+
     // Set loading state - but only if not already loading (prevents flicker)
     if (!loading) {
       setLoading(true)
@@ -800,6 +812,9 @@ function App() {
         toast.error('Unable to generate AI response. Please try again.')
       }
       setLoading(false)
+    } finally {
+      aiGenerationInProgressRef.current = false
+      aiGenerationTargetIdRef.current = null
     }
   }
 
