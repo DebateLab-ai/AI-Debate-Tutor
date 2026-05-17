@@ -3,6 +3,7 @@
 
 import os
 import re
+import time
 from datetime import datetime
 from typing import Literal, Dict, List, Optional
 import json
@@ -18,6 +19,11 @@ from pydantic import BaseModel, Field
 
 # Import RAG functionality
 from app.response import SimpleRAG, generate_debate_with_coach_loop, generate_rebuttal_speech
+
+# Third-party API
+from fastapi import Depends, BackgroundTasks
+from app.auth import verify_api_key, AuthContext
+from app.usage import log_usage
 
 # ---------- Types ----------
 # Load .env file from backend directory (parent of app directory) for local development
@@ -379,6 +385,26 @@ class EvidenceScore(BaseModel):
     feedback: str  # Specific feedback on the evidence quality
     next_claim: str  # Next claim to practice with
     next_claim_position: Literal["for", "against"]
+
+# ---------- Third-Party API (v1) ----------
+
+@app.get("/api/v1/ping")
+def api_ping(
+    background_tasks: BackgroundTasks,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    start = time.monotonic()
+    latency = int((time.monotonic() - start) * 1000)
+    background_tasks.add_task(
+        log_usage,
+        tenant_id=auth.tenant_id,
+        api_key_id=auth.api_key_id,
+        endpoint="/api/v1/ping",
+        response_status=200,
+        latency_ms=latency,
+    )
+    return {"status": "ok", "tenant_id": auth.tenant_id}
+
 
 # ---------- Helpers ----------
 def second_speaker_for_round(starter: Speaker) -> Speaker:
