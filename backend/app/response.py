@@ -20,6 +20,7 @@ import math
 from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple, Iterable
 from dotenv import load_dotenv
+from app.safety import SAFETY_PREAMBLE
 # Optional heavy deps
 try:
     from sklearn.feature_extraction.text import TfidfVectorizer
@@ -234,7 +235,7 @@ class SimpleRAG:
                 resp = client.chat.completions.create(
                     model=model,
                     messages=[
-                        {"role": "system", "content": "You are a world-class competitive debater. Your goal is to WIN through sharp, incisive argumentation—not through aggression. Be strategic, precise, and respectful. When you have context from the corpus, use it to build airtight cases. When context has gaps, fill them with compelling real-world examples that any educated voter would recognize—think NYT front page, not academic journals. Use concrete mechanisms and numbers. Make clear, fair comparisons that demonstrate why your case is stronger. Sound like a human champion debater who wins through superior logic and analysis, not an essay or a robot."},
+                        {"role": "system", "content": SAFETY_PREAMBLE + "You are a world-class competitive debater. Your goal is to WIN through sharp, incisive argumentation—not through aggression. Be strategic, precise, and respectful. When you have context from the corpus, use it to build airtight cases. When context has gaps, fill them with compelling real-world examples that any educated voter would recognize—think NYT front page, not academic journals. Use concrete mechanisms and numbers. Make clear, fair comparisons that demonstrate why your case is stronger. Sound like a human champion debater who wins through superior logic and analysis, not an essay or a robot."},
                         {"role": "user", "content": prompt},
                     ],
                     temperature=temperature,
