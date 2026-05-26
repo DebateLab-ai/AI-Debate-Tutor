@@ -5,6 +5,7 @@ from fastapi import HTTPException, Security, status
 from fastapi.security import APIKeyHeader
 
 from app.db import get_client
+from app.ratelimit import enforce_rate_limit
 
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
@@ -52,6 +53,10 @@ def verify_api_key(raw_key: str = Security(_api_key_header)) -> AuthContext:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is disabled",
         )
+
+    # Throttle per key once the key is known-valid. Raises 429 if over the limit,
+    # so a rejected request skips the last_used_at write below.
+    enforce_rate_limit(str(row["id"]))
 
     # Fire-and-forget last_used_at update — failure here is non-fatal
     try:
