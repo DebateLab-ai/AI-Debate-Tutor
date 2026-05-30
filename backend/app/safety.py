@@ -16,6 +16,7 @@ See backend/SAFETY.md for the human-readable policy.
 """
 
 import os
+import re
 from dataclasses import dataclass, field
 
 from fastapi import HTTPException, status
@@ -44,6 +45,39 @@ _DEFAULT_THRESHOLDS: dict[str, float] = {
     "violence": 0.7,
     "violence/graphic": 0.6,
 }
+
+# Zero-tolerance blocklist. The OpenAI moderation API judges harassment
+# contextually — a slur used as an exclamation often scores low (e.g.,
+# "r*tard alert" -> harassment 0.34, "retard alert" -> 0.01), even when the
+# same word directed at a person scores 0.9+. For a kids' product the term
+# itself is unacceptable regardless of context, so we add an explicit
+# blocklist alongside the classifier. Extend it via the SAFETY_EXTRA_BLOCKLIST
+# env var (comma-separated, lowercase).
+_CORE_BLOCKLIST: set[str] = {
+    "retard", "retarded",
+}
+
+
+def _compile_blocklist(words: set[str]) -> list[re.Pattern]:
+    """Compile each term to an obfuscation-tolerant regex: each letter slot
+    accepts the letter, any non-word character (asterisk, dot, dash), or a
+    digit. So 'retard' also catches 'r*tard', 'r3tard', 'r.tard', 'r-tard'."""
+    patterns = []
+    for w in words:
+        if not w:
+            continue
+        body = "".join(f"[{re.escape(c)}\\W\\d]" for c in w.lower())
+        patterns.append(re.compile(body, re.IGNORECASE))
+    return patterns
+
+
+_extra = {w.strip().lower() for w in os.getenv("SAFETY_EXTRA_BLOCKLIST", "").split(",") if w.strip()}
+_BLOCKLIST_PATTERNS = _compile_blocklist(_CORE_BLOCKLIST | _extra)
+
+
+def _blocklist_hits(text: str) -> list[str]:
+    return [pat.pattern for pat in _BLOCKLIST_PATTERNS if pat.search(text)]
+
 
 # Prepended to debate system prompts as defense-in-depth alongside the moderation
 # API. Hardens the model against producing unsafe content and against prompt
@@ -107,6 +141,12 @@ def check_text(text: str) -> ModerationResult:
     """
     if not text or not text.strip():
         return ModerationResult(allowed=True)
+
+    # Zero-tolerance blocklist runs before the API call: cheap, deterministic,
+    # and unaffected by moderation outages. Reported as the synthetic category
+    # "blocklist" so the existing fail-closed plumbing reuses it as-is.
+    if _blocklist_hits(text):
+        return ModerationResult(allowed=False, flagged_categories=["blocklist"])
 
     try:
         resp = (

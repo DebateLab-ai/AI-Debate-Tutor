@@ -66,6 +66,23 @@ policy) routinely discuss it; the sensitive categories trip earliest.
   HTTP `503` (*"Our safety check is temporarily unavailable…"*); output is replaced
   with the same fallback. This is the fail-closed behavior.
 
+## Zero-tolerance blocklist
+
+The OpenAI moderation API judges harassment **contextually** — a slur used as
+a label or exclamation often scores low (e.g. `"r*tard alert"` -> harassment
+0.34, `"retard alert"` -> 0.01), while the same word directed at a person
+scores 0.9+. Defensible for a general-purpose classifier, but a kids' product
+shouldn't allow the term in any context.
+
+A small explicit blocklist runs **before** the moderation API call. Each
+entry is matched obfuscation-tolerantly (each letter can be the letter
+itself, a non-word character, or a digit), so `retard`, `r*tard`, `r3tard`,
+`r.tard`, and `r-tard` all match.
+
+- Core list lives in `_CORE_BLOCKLIST` in `backend/app/safety.py`.
+- Extend at deploy time via `SAFETY_EXTRA_BLOCKLIST=word1,word2,...` (comma-separated, lowercase). No code change needed to expand it.
+- Blocklist hits are reported as the synthetic category `blocklist` and reuse the same fail-closed plumbing as moderation flags — user sees the gentle "rephrase" message; the category is never revealed.
+
 ## Second layer: hardened system prompt
 
 The debate model is additionally instructed, at the system level, to:
