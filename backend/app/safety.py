@@ -22,6 +22,11 @@ from fastapi import HTTPException, status
 from openai import OpenAI
 
 MODERATION_MODEL = os.getenv("MODERATION_MODEL", "omni-moderation-latest")
+# Fail-fast: moderation runs inline in the request path, so the SDK defaults
+# (10-minute timeout, 2 retries with backoff) are far too patient. A slow or
+# broken moderation call should hit the fail-closed 503 in a second or two,
+# not let the frontend time out at ~30s with a generic error.
+MODERATION_TIMEOUT_SECONDS = float(os.getenv("MODERATION_TIMEOUT_SECONDS", "8"))
 
 # Per-category score thresholds. A request is blocked if ANY category's score
 # meets or exceeds its threshold. Defaults are tuned strict for minors; the most
@@ -104,7 +109,11 @@ def check_text(text: str) -> ModerationResult:
         return ModerationResult(allowed=True)
 
     try:
-        resp = _get_client().moderations.create(model=MODERATION_MODEL, input=text)
+        resp = (
+            _get_client()
+            .with_options(timeout=MODERATION_TIMEOUT_SECONDS, max_retries=0)
+            .moderations.create(model=MODERATION_MODEL, input=text)
+        )
         scores = resp.results[0].category_scores.model_dump(by_alias=True)
     except Exception as e:  # network error, bad key, API outage, schema drift
         print(f"[safety] moderation call failed, blocking (fail-closed): {e}")
