@@ -3,6 +3,7 @@
 
 import os
 import re
+import time
 from datetime import datetime
 from typing import Literal, Dict, List, Optional
 import json
@@ -18,6 +19,12 @@ from pydantic import BaseModel, Field
 
 # Import RAG functionality
 from app.response import SimpleRAG, generate_debate_with_coach_loop, generate_rebuttal_speech
+
+# Third-party API
+from fastapi import Depends, BackgroundTasks
+from app.auth import verify_api_key, AuthContext
+from app.usage import log_usage
+from app.safety import assert_input_safe, screen_output, SAFETY_PREAMBLE
 
 # ---------- Types ----------
 # Load .env file from backend directory (parent of app directory) for local development
@@ -380,6 +387,26 @@ class EvidenceScore(BaseModel):
     next_claim: str  # Next claim to practice with
     next_claim_position: Literal["for", "against"]
 
+# ---------- Third-Party API (v1) ----------
+
+@app.get("/api/v1/ping")
+def api_ping(
+    background_tasks: BackgroundTasks,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    start = time.monotonic()
+    latency = int((time.monotonic() - start) * 1000)
+    background_tasks.add_task(
+        log_usage,
+        tenant_id=auth.tenant_id,
+        api_key_id=auth.api_key_id,
+        endpoint="/api/v1/ping",
+        response_status=200,
+        latency_ms=latency,
+    )
+    return {"status": "ok", "tenant_id": auth.tenant_id}
+
+
 # ---------- Helpers ----------
 def second_speaker_for_round(starter: Speaker) -> Speaker:
     return "assistant" if starter == "user" else "user"
@@ -493,7 +520,7 @@ def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
     
     if debate.mode == "casual":
         # Casual mode: more conversational, no RAG, less formal structure, optimized for speed
-        sys = """Sharp and confrontational. Match their depth.
+        sys = SAFETY_PREAMBLE + """Sharp and confrontational. Match their depth.
 
 CRITICAL RULE - ACCURACY (MUST FOLLOW):
 - ONLY address arguments they ACTUALLY made in their message
@@ -513,7 +540,7 @@ Use ONLY well-known examples (Amazon, iPhone, COVID-19). NEVER "research by X sh
 Always weigh. No filler. Vary your language. Do NOT include tags like "[Round X · ASSISTANT]" in your response."""
     else:
         # Parliamentary mode: formal debate structure
-        sys = """You are a competitive debater. Win through sharp logic, not aggression.
+        sys = SAFETY_PREAMBLE + """You are a competitive debater. Win through sharp logic, not aggression.
 
 CRITICAL RULE - ACCURACY (MUST FOLLOW):
 - ONLY address arguments they ACTUALLY made in their messages
@@ -1022,6 +1049,9 @@ def submit_turn(debate_id: UUID, body: TurnIn):
     if body.speaker != debate.next_speaker:
         raise HTTPException(409, f"It is {debate.next_speaker}'s turn.")
 
+    # Safety: screen the user's argument before it enters the debate / the model.
+    assert_input_safe(body.content, where="debate turn")
+
     msg = _append_message_and_advance(debate, body.speaker, body.content)
 
     return TurnOut(
@@ -1381,6 +1411,14 @@ Compelling, rigorous, well-structured."""
         for word in words:
             yield word + ' '
 
+def _chunk_for_stream(text: str, size: int = 12):
+    """Yield fixed-size slices of `text` so already-verified output can be
+    re-streamed to the frontend with the same SSE chunk shape. Fixed-size slices
+    guarantee the concatenated chunks reproduce the text exactly."""
+    for i in range(0, len(text), size):
+        yield text[i:i + size]
+
+
 @app.post("/v1/debates/{debate_id}/auto-turn")
 def auto_turn(debate_id: UUID, stream: bool = Query(False, description="Enable streaming response")):
     debate = DEBATES.get(debate_id)
@@ -1396,24 +1434,27 @@ def auto_turn(debate_id: UUID, stream: bool = Query(False, description="Enable s
     # If streaming is requested, use streaming endpoint
     if stream:
         def stream_generator():
-            full_text = ""
             try:
-                for chunk in generate_ai_turn_text_stream_sync(debate, history):
-                    full_text += chunk
-                    # Send chunk as JSON using SSE format
-                    yield f"data: {json.dumps({'chunk': chunk, 'done': False})}\n\n"
-                
-                # After streaming completes, save message and send final metadata
-                # Clean up any tags
+                # Safety (fail-closed output): buffer the FULL generation, moderate
+                # it, and only then stream the verified text out. A kid never sees
+                # unverified tokens. The SSE chunk contract is unchanged — we just
+                # re-chunk the approved text — so the frontend needs no edits. The
+                # trade-off is that the first chunk arrives only after generation.
+                full_text = "".join(generate_ai_turn_text_stream_sync(debate, history))
                 full_text_clean = re.sub(r'\[Round \d+ · (ASSISTANT|USER)\]\s*', '', full_text, flags=re.IGNORECASE)
-                msg = _append_message_and_advance(debate, "assistant", full_text_clean.strip())
+                safe_text = screen_output(full_text_clean.strip())
+
+                for piece in _chunk_for_stream(safe_text):
+                    yield f"data: {json.dumps({'chunk': piece, 'done': False})}\n\n"
+
+                msg = _append_message_and_advance(debate, "assistant", safe_text)
                 yield f"data: {json.dumps({'done': True, 'message_id': str(msg.id), 'content': msg.content, 'round_no': msg.round_no, 'next_speaker': debate.next_speaker if debate.status == 'active' else None, 'current_round': debate.current_round, 'status': debate.status})}\n\n"
             except Exception as e:
                 print(f"[ERROR] Streaming generator failed: {e}")
                 import traceback
                 traceback.print_exc()
-                # Fallback to non-streaming on error
-                ai_text = generate_ai_turn_text(debate, history)
+                # Fallback to non-streaming on error (also screened).
+                ai_text = screen_output(generate_ai_turn_text(debate, history))
                 msg = _append_message_and_advance(debate, "assistant", ai_text)
                 yield f"data: {json.dumps({'done': True, 'message_id': str(msg.id), 'content': msg.content, 'round_no': msg.round_no, 'next_speaker': debate.next_speaker if debate.status == 'active' else None, 'current_round': debate.current_round, 'status': debate.status})}\n\n"
         
@@ -1423,8 +1464,8 @@ def auto_turn(debate_id: UUID, stream: bool = Query(False, description="Enable s
             "X-Accel-Buffering": "no"  # Disable buffering in nginx
         })
     
-    # Non-streaming: original behavior
-    ai_text = generate_ai_turn_text(debate, history)
+    # Non-streaming: original behavior (output screened before it's saved/returned).
+    ai_text = screen_output(generate_ai_turn_text(debate, history))
     msg = _append_message_and_advance(debate, "assistant", ai_text)
 
     return AutoTurnOut(
@@ -1477,6 +1518,9 @@ async def transcribe(file: UploadFile = File(...)):
         # Log internally but NEVER expose error details
         print(f"[ERROR] Transcription failed: {e}")
         raise HTTPException(502, "Unable to transcribe audio. Please try again.")
+
+    # Safety: screen the transcribed speech before it can become a debate turn.
+    assert_input_safe(text, where="transcript")
 
     return TranscribeOut(text=text)
 
@@ -1739,6 +1783,8 @@ def start_rebuttal_drill(body: DrillStartRequest):
 @app.post("/v1/drills/rebuttal/submit", response_model=DrillRebuttalScore)
 def submit_rebuttal_drill(body: DrillRebuttalSubmit):
     """Submit a rebuttal and get scored + next claim."""
+    # Safety: screen the user's free-text rebuttal before scoring.
+    assert_input_safe(body.rebuttal, where="rebuttal drill")
     # Score the rebuttal (with weakness_type if provided)
     score_result = score_drill_rebuttal(
         body.motion,
@@ -1894,6 +1940,8 @@ def start_evidence_drill(body: DrillStartRequest):
 @app.post("/v1/drills/evidence/submit", response_model=EvidenceScore)
 def submit_evidence_drill(body: EvidenceSubmit):
     """Submit evidence and get scored + next claim."""
+    # Safety: screen the user's free-text evidence before scoring.
+    assert_input_safe(body.evidence, where="evidence drill")
     # Score the evidence
     score_result = score_evidence(body.motion, body.claim, body.evidence)
 
