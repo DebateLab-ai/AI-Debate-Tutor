@@ -66,13 +66,18 @@ DIFFICULTY: dict[Difficulty, DifficultyConfig] = {
     "beginner": DifficultyConfig(
         prompt_addendum=(
             "DIFFICULTY: BEGINNER\n"
-            "- Keep replies to ~1 short paragraph (3-4 sentences).\n"
-            "- Use plain, accessible vocabulary; briefly explain any specialized terms.\n"
+            "- Aim for 1-2 short paragraphs (roughly 7-10 sentences) — enough to "
+            "develop the point properly, not so much it overwhelms.\n"
+            "- When a debate term or specialized concept comes up, take a sentence "
+            "or two to explain it the way you would to a friend who's new to debate: "
+            "patient, plain, no jargon-dropping, and never a 'you should already "
+            "know this' framing.\n"
             "- Make ONE clear point per turn and support it simply.\n"
             "- Do not introduce more than one new argument at a time.\n"
-            "- Tone is patient and constructive, not harsh.\n\n"
+            "- Tone is collaborative — like a fellow debater walking through the "
+            "idea with them, not a coach lecturing from above.\n\n"
         ),
-        max_tokens=300,
+        max_tokens=500,
         temperature=0.5,
         rag_temp_low=0.3,
         rag_temp_high=0.6,
