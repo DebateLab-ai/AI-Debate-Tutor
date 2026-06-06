@@ -53,9 +53,12 @@ _DEFAULT_THRESHOLDS: dict[str, float] = {
 # itself is unacceptable regardless of context, so we add an explicit
 # blocklist alongside the classifier. Extend it via the SAFETY_EXTRA_BLOCKLIST
 # env var (comma-separated, lowercase).
-_CORE_BLOCKLIST: set[str] = {
-    "retard", "retarded",
-}
+_CORE_BLOCKLIST: set[str] = set()
+# Empty for now — the obfuscation-tolerant regex over-matched on legitimate
+# uses ("retard" as a verb in policy debate, or appearing inside larger words
+# like "retardation"). Re-populate with curated terms after deciding on
+# word-boundary semantics; until then the moderation API alone gates this
+# layer. The SAFETY_EXTRA_BLOCKLIST env var still works for deploy-time adds.
 
 
 def _compile_blocklist(words: set[str]) -> list[re.Pattern]:
