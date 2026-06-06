@@ -25,6 +25,7 @@ from fastapi import Depends, BackgroundTasks
 from app.auth import verify_api_key, AuthContext
 from app.usage import log_usage
 from app.safety import assert_input_safe, screen_output, SAFETY_PREAMBLE
+from app.difficulty import Difficulty, DEFAULT_DIFFICULTY, get_config as get_difficulty_config, apply_score_floor
 
 # ---------- Types ----------
 # Load .env file from backend directory (parent of app directory) for local development
@@ -130,11 +131,23 @@ app.add_middleware(
 # ---------- RAG System ----------
 # Global RAG instance - will be initialized on startup
 rag_system: Optional[SimpleRAG] = None
+# Optional per-tier RAG instances. Populated at startup if the subfolder exists
+# and has documents; otherwise the picker falls back to rag_system.
+rag_system_advanced: Optional[SimpleRAG] = None
+
+
+def get_rag_for(difficulty: Optional[str]) -> Optional[SimpleRAG]:
+    """Pick the right RAG instance for a tier. Falls back to the root corpus
+    when a tier-specific corpus hasn't been populated yet."""
+    cfg = get_difficulty_config(difficulty)
+    if cfg.corpus_subdir == "advanced" and rag_system_advanced is not None:
+        return rag_system_advanced
+    return rag_system
 
 @app.on_event("startup")
 def startup_event():
     """Initialize RAG system with corpus on app startup"""
-    global rag_system
+    global rag_system, rag_system_advanced
     try:
         corpus_dir = os.getenv("SPEECH_CORPUS_DIR", "./app/corpus")
         # Handle both relative and absolute paths
@@ -156,6 +169,23 @@ def startup_event():
         else:
             print(f"[RAG] Warning: Corpus directory not found: {corpus_dir}")
             print(f"[RAG] RAG system initialized but no documents loaded")
+
+        # Optional: advanced-tier corpus. Loaded only if the subfolder exists
+        # and has indexable docs; otherwise advanced silently falls back to the
+        # root corpus via get_rag_for(). Lets the operator tag advanced
+        # content later without any code change.
+        advanced_dir = os.path.join(corpus_dir, "advanced")
+        if os.path.isdir(advanced_dir):
+            try:
+                rag_advanced = SimpleRAG()
+                rag_advanced.add_corpus_folder(advanced_dir, pattern=r".*\.txt$")
+                if rag_advanced.docs:
+                    rag_system_advanced = rag_advanced
+                    print(f"[RAG] Advanced corpus loaded: {len(rag_advanced.docs)} documents from {advanced_dir}")
+                else:
+                    print(f"[RAG] Advanced corpus folder is empty; advanced tier will use the root corpus")
+            except Exception as e:
+                print(f"[RAG] Warning: failed to load advanced corpus from {advanced_dir}: {e}")
     except Exception as e:
         print(f"[RAG] Error during startup: {e}")
         import traceback
@@ -179,6 +209,10 @@ class Debate(BaseModel):
     created_at: datetime
     updated_at: datetime
     mode: Literal["casual", "parliamentary"] = "casual"
+    # Per-debate difficulty tier. Default preserves today's behavior for any
+    # existing or unspecified caller; new clients (the third-party API) can
+    # opt into "beginner" or "advanced".
+    difficulty: Difficulty = DEFAULT_DIFFICULTY
 
 class Message(BaseModel):
     id: UUID
@@ -243,6 +277,8 @@ class DebateCreate(BaseModel):
     num_rounds: int = Field(ge=1, le=10)  # Max 10 for casual mode, validated in endpoint
     starter: Speaker
     mode: Literal["casual", "parliamentary"] = "casual"
+    # Optional; defaults to intermediate (today's behavior).
+    difficulty: Difficulty = DEFAULT_DIFFICULTY
 
 class DebateOut(BaseModel):
     id: UUID
@@ -255,6 +291,7 @@ class DebateOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     mode: Literal["casual", "parliamentary"] = "casual"
+    difficulty: Difficulty = DEFAULT_DIFFICULTY
 
 class MessageOut(BaseModel):
     id: UUID
@@ -464,7 +501,10 @@ def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
     In casual mode, skips RAG and uses a more conversational prompt.
     """
     motion = debate.title if debate.title else "General debate topic"
-    use_rag = debate.mode == "parliamentary" and rag_system is not None
+    cfg = get_difficulty_config(debate.difficulty)
+    picked_rag = get_rag_for(debate.difficulty)
+    # Beginner skips RAG (cfg.use_rag=False) so the prompt addendum governs.
+    use_rag = cfg.use_rag and debate.mode == "parliamentary" and picked_rag is not None
 
     # If we have RAG, parliamentary mode, and this is a rebuttal (not the first turn)
     if use_rag and len(messages) > 0:
@@ -477,17 +517,17 @@ def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
             last_opponent = opponent_messages[-1]
             try:
                 result = generate_rebuttal_speech(
-                    rag=rag_system,
+                    rag=picked_rag,
                     motion=motion,
                     opponent_speech=last_opponent.content,
                     side=side,
                     format="WSDC",
                     use_rag=True,
-                    top_k=6,
-                    min_score=0.1,
+                    top_k=cfg.rag_top_k,
+                    min_score=cfg.rag_min_score,
                     model="gpt-4o-mini",
-                    temp_low=0.3,
-                    temp_high=0.8
+                    temp_low=cfg.rag_temp_low,
+                    temp_high=cfg.rag_temp_high
                 )
                 return result["rebuttal_speech"]
             except Exception as e:
@@ -498,18 +538,18 @@ def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
         side = "Government" if debate.starter == "assistant" else "Opposition"
         try:
             result = generate_debate_with_coach_loop(
-                rag=rag_system,
+                rag=picked_rag,
                 motion=motion,
                 side=side,
                 format="WSDC",
                 use_rag=True,
-                top_k=6,
-                min_score=0.1,
+                top_k=cfg.rag_top_k,
+                min_score=cfg.rag_min_score,
                 model="gpt-4o-mini",
                 temperature_gen=0.5,
                 temperature_rev=0.2,
-                temp_low=0.3,
-                temp_high=0.8
+                temp_low=cfg.rag_temp_low,
+                temp_high=cfg.rag_temp_high
             )
             return result["initial_speech"]
         except Exception as e:
@@ -520,7 +560,7 @@ def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
     
     if debate.mode == "casual":
         # Casual mode: more conversational, no RAG, less formal structure, optimized for speed
-        sys = SAFETY_PREAMBLE + """Sharp and confrontational. Match their depth.
+        sys = SAFETY_PREAMBLE + cfg.prompt_addendum + """Sharp and confrontational. Match their depth.
 
 CRITICAL RULE - ACCURACY (MUST FOLLOW):
 - ONLY address arguments they ACTUALLY made in their message
@@ -540,7 +580,7 @@ Use ONLY well-known examples (Amazon, iPhone, COVID-19). NEVER "research by X sh
 Always weigh. No filler. Vary your language. Do NOT include tags like "[Round X · ASSISTANT]" in your response."""
     else:
         # Parliamentary mode: formal debate structure
-        sys = SAFETY_PREAMBLE + """You are a competitive debater. Win through sharp logic, not aggression.
+        sys = SAFETY_PREAMBLE + cfg.prompt_addendum + """You are a competitive debater. Win through sharp logic, not aggression.
 
 CRITICAL RULE - ACCURACY (MUST FOLLOW):
 - ONLY address arguments they ACTUALLY made in their messages
@@ -645,14 +685,17 @@ Compelling, rigorous, well-structured."""
 
     if client:
         try:
-            # Use lower max_tokens for casual mode to ensure faster, shorter responses
-            max_tokens = 300 if debate.mode == "casual" else None
+            # Difficulty config can override both knobs. Beginner caps at 300
+            # regardless of mode; intermediate keeps the mode-based default
+            # (300 for casual, None for parliamentary); advanced may leave both unset.
+            max_tokens = cfg.max_tokens if cfg.max_tokens is not None else (300 if debate.mode == "casual" else None)
+            temperature = cfg.temperature if cfg.temperature is not None else 0.7
             resp = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "system", "content": sys}] + convo + [
                     {"role": "user", "content": prompt_now}
                 ],
-                temperature=0.7,  # Higher temp since no RAG context (matches response.py adaptive logic)
+                temperature=temperature,
                 max_tokens=max_tokens,
             )
             ai_response = resp.choices[0].message.content.strip()
@@ -838,6 +881,12 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
         "Return ONLY the JSON object. No markdown code blocks, no explanations, no additional text."
     )
 
+    # Per-difficulty scoring tone appended at the very end so it has the last
+    # word over the mode-specific rubric above (e.g. beginner -> gentle).
+    score_cfg = get_difficulty_config(debate.difficulty)
+    if score_cfg.scoring_addendum:
+        system_prompt += "\n\n" + score_cfg.scoring_addendum
+
     prompt = [
         {"role": "system", "content": system_prompt},
         *convo,
@@ -948,6 +997,25 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
 
     overall = round(raw_overall, 1)
 
+    # Difficulty score floor (default-off; beginner sets it to 5.0). Keeps an
+    # engagement marked "Not scorable" at 0 so the explanation remains coherent;
+    # everything else clamps up so a beginner never sees a crushing number.
+    if score_cfg.score_floor is not None:
+        engagement_not_scorable = (
+            metrics.engagement == 0
+            and "Not scorable" in parsed.get("engagement_feedback", "")
+        )
+        metrics = ScoreMetrics(
+            content_structure=apply_score_floor(metrics.content_structure, score_cfg.score_floor),
+            engagement=(
+                metrics.engagement
+                if engagement_not_scorable
+                else apply_score_floor(metrics.engagement, score_cfg.score_floor)
+            ),
+            strategy=apply_score_floor(metrics.strategy, score_cfg.score_floor),
+        )
+        overall = apply_score_floor(overall, score_cfg.score_floor)
+
     # Extract weakness_type with validation
     weakness_type_raw = parsed.get("weakness_type", "").lower()
     valid_weakness_types = ["rebuttal", "structure", "weighing", "evidence", "strategy"]
@@ -1029,6 +1097,7 @@ def create_debate(body: DebateCreate):
         created_at=now,
         updated_at=now,
         mode=body.mode,
+        difficulty=body.difficulty,
     )
     DEBATES[did] = debate
     MESSAGES[did] = []
@@ -1097,8 +1166,10 @@ def generate_ai_turn_text_stream_sync(debate: Debate, messages: List[Message]):
     Uses the same prompt structure and RAG logic as generate_ai_turn_text for consistency.
     """
     motion = debate.title if debate.title else "General debate topic"
-    use_rag = debate.mode == "parliamentary" and rag_system is not None
-    
+    cfg = get_difficulty_config(debate.difficulty)
+    picked_rag = get_rag_for(debate.difficulty)
+    use_rag = cfg.use_rag and debate.mode == "parliamentary" and picked_rag is not None
+
     # If we have RAG, parliamentary mode, and this is a rebuttal (not the first turn)
     if use_rag and len(messages) > 0:
         side = "Opposition" if debate.starter == "user" else "Government"
@@ -1106,8 +1177,8 @@ def generate_ai_turn_text_stream_sync(debate: Debate, messages: List[Message]):
         if opponent_messages:
             last_opponent = opponent_messages[-1]
             # Retrieve RAG context (same as generate_rebuttal_speech)
-            hits = rag_system.retriever.query(motion, top_k=6) if rag_system.retriever else []
-            hits = [(d, s) for (d, s) in hits if s >= 0.1]
+            hits = picked_rag.retriever.query(motion, top_k=cfg.rag_top_k) if picked_rag.retriever else []
+            hits = [(d, s) for (d, s) in hits if s >= cfg.rag_min_score]
             
             # Format context block (same as _format_context_blocks)
             if not hits:
@@ -1132,7 +1203,7 @@ def generate_ai_turn_text_stream_sync(debate: Debate, messages: List[Message]):
             
             # Use REBUTTAL_PROMPT_TMPL structure (same as generate_rebuttal_speech)
             # System prompt matches rag._call_llm() from response.py
-            sys = "You are a world-class competitive debater. Your goal is to WIN through sharp, incisive argumentation—not through aggression. Be strategic, precise, and respectful. When you have context from the corpus, use it to build airtight cases. When context has gaps, fill them with compelling real-world examples that any educated voter would recognize—think NYT front page, not academic journals. Use concrete mechanisms and numbers. Make clear, fair comparisons that demonstrate why your case is stronger. Sound like a human champion debater who wins through superior logic and analysis, not an essay or a robot."
+            sys = SAFETY_PREAMBLE + cfg.prompt_addendum + "You are a world-class competitive debater. Your goal is to WIN through sharp, incisive argumentation—not through aggression. Be strategic, precise, and respectful. When you have context from the corpus, use it to build airtight cases. When context has gaps, fill them with compelling real-world examples that any educated voter would recognize—think NYT front page, not academic journals. Use concrete mechanisms and numbers. Make clear, fair comparisons that demonstrate why your case is stronger. Sound like a human champion debater who wins through superior logic and analysis, not an essay or a robot."
             prompt_now = f"""You are a {side} debater. Motion: {motion}
 
 OTHER SIDE'S SPEECH:
@@ -1179,8 +1250,8 @@ CRITICAL - NEVER CITE SOURCES:
     elif use_rag and len(messages) == 0:
         side = "Government" if debate.starter == "assistant" else "Opposition"
         # Retrieve RAG context (same as generate_debate_with_coach_loop)
-        hits = rag_system.retriever.query(motion, top_k=6) if rag_system.retriever else []
-        hits = [(d, s) for (d, s) in hits if s >= 0.1]
+        hits = picked_rag.retriever.query(motion, top_k=cfg.rag_top_k) if picked_rag.retriever else []
+        hits = [(d, s) for (d, s) in hits if s >= cfg.rag_min_score]
         
         # Format context block
         if not hits:
@@ -1206,7 +1277,7 @@ CRITICAL - NEVER CITE SOURCES:
         
         # Use SPEECH_PROMPT_TMPL structure
         # System prompt matches rag._call_llm() from response.py
-        sys = "You are a world-class competitive debater. Your goal is to WIN through sharp, incisive argumentation—not through aggression. Be strategic, precise, and respectful. When you have context from the corpus, use it to build airtight cases. When context has gaps, fill them with compelling real-world examples that any educated voter would recognize—think NYT front page, not academic journals. Use concrete mechanisms and numbers. Make clear, fair comparisons that demonstrate why your case is stronger. Sound like a human champion debater who wins through superior logic and analysis, not an essay or a robot."
+        sys = SAFETY_PREAMBLE + cfg.prompt_addendum + "You are a world-class competitive debater. Your goal is to WIN through sharp, incisive argumentation—not through aggression. Be strategic, precise, and respectful. When you have context from the corpus, use it to build airtight cases. When context has gaps, fill them with compelling real-world examples that any educated voter would recognize—think NYT front page, not academic journals. Use concrete mechanisms and numbers. Make clear, fair comparisons that demonstrate why your case is stronger. Sound like a human champion debater who wins through superior logic and analysis, not an essay or a robot."
         prompt_now = f"""You are delivering a WSDC {side} speech. Motion: {motion}
 
 CRITICAL: You are arguing on the {side} side. If you are Government, you SUPPORT the motion. If you are Opposition, you OPPOSE the motion. All your arguments must align with this position.
@@ -1255,7 +1326,7 @@ NEVER CITE SOURCES - THIS IS CRITICAL:
         topic_context = f"Debate topic: {motion}"
         
         if debate.mode == "casual":
-            sys = """Sharp and confrontational. Match their depth.
+            sys = SAFETY_PREAMBLE + cfg.prompt_addendum + """Sharp and confrontational. Match their depth.
 
 CRITICAL RULE - ACCURACY (MUST FOLLOW):
 - ONLY address arguments they ACTUALLY made in their message
@@ -1274,7 +1345,7 @@ Build from FIRST PRINCIPLES: state premise, derive each step logically where eac
 Use ONLY well-known examples (Amazon, iPhone, COVID-19). NEVER "research by X showed Y".
 Always weigh. No filler. Vary your language. Do NOT include tags like "[Round X · ASSISTANT]" in your response."""
         else:
-            sys = """You are a competitive debater. Win through sharp logic, not aggression.
+            sys = SAFETY_PREAMBLE + cfg.prompt_addendum + """You are a competitive debater. Win through sharp logic, not aggression.
 
 CRITICAL RULE - ACCURACY (MUST FOLLOW):
 - ONLY address arguments they ACTUALLY made in their messages
@@ -1375,7 +1446,14 @@ Compelling, rigorous, well-structured."""
         
         temperature = 0.7
         max_tokens = 300 if debate.mode == "casual" else None
-    
+
+    # Difficulty config gets the last word on length and creativity, after the
+    # per-branch defaults are set (None overrides keep the existing behavior).
+    if cfg.max_tokens is not None:
+        max_tokens = cfg.max_tokens
+    if cfg.temperature is not None:
+        temperature = cfg.temperature
+
     # Stream the response using OpenAI API
     if client:
         try:
