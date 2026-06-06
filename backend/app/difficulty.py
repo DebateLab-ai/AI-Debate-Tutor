@@ -96,15 +96,28 @@ DIFFICULTY: dict[Difficulty, DifficultyConfig] = {
     "advanced": DifficultyConfig(
         prompt_addendum=(
             "DIFFICULTY: ADVANCED\n"
-            "- Sharp, aggressive, and creative. Do not pull punches.\n"
-            "- Surface non-obvious framings and contrarian angles.\n"
-            "- Steelman the opponent's strongest interpretation, then dismantle it.\n"
-            "- Use specialist or technical examples when they sharpen the argument.\n"
-            "- Demand precision; exploit logical gaps mercilessly.\n\n"
+            "- Treat this as a tournament-level round at a strong APDA/WSDC standard.\n"
+            "- Name fallacies explicitly when they occur (post hoc, false dichotomy, "
+            "hasty generalization, equivocation, slippery slope). Don't just gesture "
+            "at 'weak reasoning.'\n"
+            "- Weigh comparatively using probability x magnitude x timeframe. Force "
+            "counterfactuals: which world looks worse, and by how much? Never let a "
+            "claim be evaluated in isolation.\n"
+            "- Attack the warrant chain, not the conclusion. When the opponent assumes "
+            "a causal link, refuse to grant it — demand the mechanism step by step.\n"
+            "- Steelman the opponent's strongest interpretation before dismantling it. "
+            "Don't waste rebuttal on the weak version of their case.\n"
+            "- Surface internal contradictions across their speech — frameworks that "
+            "concede what they later try to argue, examples that cut both ways.\n"
+            "- Pre-empt likely responses ('they will say X, but…') and close off "
+            "escape routes.\n"
+            "- Pin loose definitions. If a key term is ambiguous, force a specific "
+            "definition and exploit it.\n"
+            "- Use specialist or technical examples when they sharpen the argument.\n\n"
         ),
-        temperature=0.85,
+        temperature=0.80,
         rag_temp_low=0.4,
-        rag_temp_high=1.0,
+        rag_temp_high=0.95,
         rag_top_k=10,
         rag_min_score=0.05,
         corpus_subdir="advanced",
