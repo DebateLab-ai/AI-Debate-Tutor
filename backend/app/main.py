@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 # Import RAG functionality
 from app.response import SimpleRAG, generate_debate_with_coach_loop, generate_rebuttal_speech
+from app.wsdc import generate_wsdc_speech
 
 # Third-party API
 from fastapi import Depends, BackgroundTasks
@@ -503,15 +504,33 @@ def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
     motion = debate.title if debate.title else "General debate topic"
     cfg = get_difficulty_config(debate.difficulty)
     picked_rag = get_rag_for(debate.difficulty)
-    # Beginner skips RAG (cfg.use_rag=False) so the prompt addendum governs.
+
+    # ── WSDC two-pass pipeline (intermediate + advanced, parliamentary only) ──
+    if debate.mode == "parliamentary" and debate.difficulty in ("intermediate", "advanced"):
+        side = "Opposition" if debate.starter == "user" else "Government"
+        opponent_messages = [m for m in messages if m.speaker != "assistant"]
+        is_rebuttal = len(opponent_messages) > 0
+        opponent_speech = opponent_messages[-1].content if is_rebuttal else None
+        try:
+            return generate_wsdc_speech(
+                rag=picked_rag,
+                motion=motion,
+                side=side,
+                is_rebuttal=is_rebuttal,
+                opponent_speech=opponent_speech,
+                difficulty=debate.difficulty,
+                top_k=cfg.rag_top_k,
+                min_score=cfg.rag_min_score,
+            )
+        except Exception as e:
+            print(f"[WSDC] Pipeline failed: {e}, falling back to basic generation")
+
+    # Beginner skips RAG so the prompt addendum governs.
     use_rag = cfg.use_rag and debate.mode == "parliamentary" and picked_rag is not None
 
     # If we have RAG, parliamentary mode, and this is a rebuttal (not the first turn)
     if use_rag and len(messages) > 0:
-        # Determine side - assistant is Opposition if starter is user, Government if starter is assistant
         side = "Opposition" if debate.starter == "user" else "Government"
-
-        # Get the last opponent message to rebut
         opponent_messages = [m for m in messages if m.speaker != "assistant"]
         if opponent_messages:
             last_opponent = opponent_messages[-1]
