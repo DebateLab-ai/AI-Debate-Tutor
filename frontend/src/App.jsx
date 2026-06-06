@@ -145,6 +145,9 @@ function App() {
   const [position, setPosition] = useState('for') // 'for' or 'against'
   const [numRounds, setNumRounds] = useState(2)
   const [mode, setMode] = useState('casual') // 'parliamentary' or 'casual'
+  // Difficulty tier — dev-only picker (gated on import.meta.env.DEV below).
+  // In production builds this stays at 'intermediate', matching today's behavior.
+  const [difficulty, setDifficulty] = useState('intermediate')
   const [setupComplete, setSetupComplete] = useState(false)
 
   // Handle URL routing - load debate from URL or sync URL to state
@@ -395,6 +398,7 @@ function App() {
           starter,
           title: `${topic} (User: ${position}, You take the opposite position)`,
           mode: mode,
+          difficulty: difficulty,
         }),
       }, 30000) // 30 second timeout
 
@@ -863,6 +867,7 @@ function App() {
     setTranscribing(false)
     setMediaRecorder(null)
     setMode('casual')
+    setDifficulty('intermediate')
     setTopic('Social media does more harm than good')
     setTopicMode('custom')
     setSelectedCategory(null)
@@ -1080,6 +1085,35 @@ function App() {
                 </button>
               </div>
             </div>
+
+            {import.meta.env.DEV && (
+              <div
+                className="form-group"
+                style={{
+                  border: '1px dashed #999',
+                  padding: '10px',
+                  borderRadius: '6px',
+                  background: '#fafafa',
+                }}
+              >
+                <label style={{ fontFamily: 'monospace', fontSize: '0.85rem', color: '#666' }}>
+                  [dev only] Difficulty
+                </label>
+                <select
+                  value={difficulty}
+                  onChange={(e) => setDifficulty(e.target.value)}
+                  className="input-large"
+                  style={{ fontFamily: 'monospace' }}
+                >
+                  <option value="beginner">beginner — shorter, peer voice, lenient scoring</option>
+                  <option value="intermediate">intermediate — today&apos;s behavior (default)</option>
+                  <option value="advanced">advanced — named techniques, sharper</option>
+                </select>
+                <small style={{ display: 'block', marginTop: '6px', color: '#888' }}>
+                  Hidden in production builds. Tier is locked at debate creation.
+                </small>
+              </div>
+            )}
 
             <div className="form-group">
               <label>Number of Rounds</label>
