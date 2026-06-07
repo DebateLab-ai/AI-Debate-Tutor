@@ -1,0 +1,53 @@
+Hi yes of course. Sid feel free to correct me if there's anything I messed up.
+
+Our tech stack is as follows:
+- Backend: FastAPI (Python), deployed on Railway
+- DB: Supabase (Postgres), hosted in the US
+
+The AI models we use are a mix of Claude and OpenAI, routed automatically by debate format and difficulty. As a rule of thumb, the more advanced the format and tier, the higher the cost per debate.
+
+For advanced parliamentary speeches (WSDC, AP) at intermediate and advanced difficulty, Claude is our primary — Sonnet 4.6 generates a structured JSON outline of the speech (opening, contentions, mechanisms, weighing, rebuttals), then Haiku 4.5 renders that outline into a spoken-style speech. We chose the two-pass design because it separates the *reasoning* (Sonnet) from the *delivery* (Haiku), and Claude has consistently produced sharper logical chains for our prompts at this tier.
+
+For casual-mode debates, beginner-tier WSDC, and everything supporting (content moderation, audio transcription, fallback when Claude is unavailable), we use OpenAI — gpt-4o-mini as the workhorse, gpt-4o for the scoring fallback. Scoring itself runs on Haiku 4.5 by default (we A/B tested six candidate models on the same transcript and Haiku had the best feedback specificity for the price).
+
+We also have a voice feature — students can record their speech and we transcribe it via OpenAI's Whisper. It's batch transcription, not live streaming, so there's a short delay after the recording ends. For accuracy and the best experience across all features, we'd recommend text-based debates for your initial integration.
+
+In terms of safety, we have two active layers:
+1. OpenAI's moderation endpoint — catches violence, sexual content, self-harm signals, hate speech.
+2. System-level prompt hardening — instructions baked into every AI call to prevent students from redirecting the model with malicious input ("ignore previous instructions" style attacks).
+
+(We previously had an in-house keyword blocklist as a third layer, but the regex was over-matching legitimate debate content, so we disabled it. Re-curating a tighter list is on the roadmap.)
+
+For the API access flow specifically: every request requires an X-API-Key header. We hash the key (SHA-256) before storage and never persist the raw value — you get it once at creation. Every debate, message, and score is tagged with your tenant ID at write time and filtered by tenant ID on every read, so even at the database level no other partner could see your students' data. We have row-level security enabled on Postgres as a backstop, per-key rate limits (15 req/min by default, adjustable for you), and HTTPS end-to-end.
+
+We also have a per-partner configuration that's more isolated than what's running on our public site — you get your own tenant, your own API key, your own rate limit budget, and the data is scoped to you only. The public site shares one debate pool; you don't.
+
+——
+
+For payment, here's where we currently sit:
+
+Using advanced WSDC mode as the benchmark (any other mode will be cheaper):
+- One AI-generated speech: ~$0.035 (roughly 900 VND at current rates)
+- One full debate round (3 student speeches + final AI scoring): ~$0.11 (~2,800 VND)
+- 100 debates/month: ~$11 (~289,000 VND)
+- 1,000 debates/month: ~$110 (~2,900,000 VND)
+
+We also enforce a maximum input length per submission (10,000 characters, roughly 2,000 words) so a student can't accidentally rack up an expensive call by pasting in an oversized speech.
+
+Because the nominal monthly amount in USD is small, our thought is to log every API call against your tenant and send a monthly usage statement. We'll defer to whatever channel your finance ops already uses for international vendors (Zoom, Google Workspace, etc.) — Wise is one common option for cross-border small-amount transactions and works well on our side, but no preference, happy to use whatever's least friction for you.
+
+——
+
+A few flags from our side before we go further:
+
+1. **Data residency / PDPD.** Our database is in the US. Please confirm with your compliance team whether US-hosted storage of student-related data is acceptable under Vietnam's PDPD. If not, we can structure the integration so you only pass an anonymized student ID and keep all PII on your side, or at higher volumes consider a regional database. Worth resolving now before code-level integration.
+
+2. **Reliability posture.** We're a small team and don't offer a formal SLA. We monitor the service and respond to issues quickly, but recommend handling transient errors gracefully on your side (e.g., retry once on 5xx, surface a friendly message if a turn fails).
+
+3. **A few questions to size things correctly on our end:**
+   - Who's doing the technical integration on your side — a dev, or someone non-technical? Determines how much hand-holding we should plan for.
+   - Realistic monthly debate volume target? Rough is fine ("20 students × 2 debates/week" works).
+   - Is the use case mostly casual practice, or mostly WSDC/AP tournament training? This is the single biggest cost driver, and shapes what mode we default students to.
+   - Do you need a formal Data Processing Agreement before going live, or is informal alignment enough for your compliance review?
+
+Happy to go deeper on any of this — data flow diagram, threat model, retention policy, anything your team wants.
