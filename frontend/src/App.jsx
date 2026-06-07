@@ -144,7 +144,10 @@ function App() {
   const [selectedCategory, setSelectedCategory] = useState(null)
   const [position, setPosition] = useState('for') // 'for' or 'against'
   const [numRounds, setNumRounds] = useState(2)
-  const [mode, setMode] = useState('casual') // 'parliamentary' or 'casual'
+  const [mode, setMode] = useState('casual') // 'casual' | 'wsdc' | 'ap'
+  // Difficulty tier — user-selectable at debate creation.
+  // In production builds this stays at 'intermediate', matching today's behavior.
+  const [difficulty, setDifficulty] = useState('intermediate')
   const [setupComplete, setSetupComplete] = useState(false)
 
   // Handle URL routing - load debate from URL or sync URL to state
@@ -395,6 +398,7 @@ function App() {
           starter,
           title: `${topic} (User: ${position}, You take the opposite position)`,
           mode: mode,
+          difficulty: difficulty,
         }),
       }, 30000) // 30 second timeout
 
@@ -863,6 +867,7 @@ function App() {
     setTranscribing(false)
     setMediaRecorder(null)
     setMode('casual')
+    setDifficulty('intermediate')
     setTopic('Social media does more harm than good')
     setTopicMode('custom')
     setSelectedCategory(null)
@@ -1069,16 +1074,39 @@ function App() {
                   <small>Conversational</small>
                 </button>
                 <button
-                  className={mode === 'parliamentary' ? 'position-btn active' : 'position-btn'}
+                  className={mode === 'wsdc' ? 'position-btn active' : 'position-btn'}
                   onClick={() => {
-                    setMode('parliamentary')
+                    setMode('wsdc')
                     if (numRounds > 3) setNumRounds(3) // Cap rounds for parliamentary
                   }}
                 >
-                  Parliamentary
-                  <small>Competition-level debate</small>
+                  WSDC
+                  <small>World Schools format</small>
+                </button>
+                <button
+                  className={mode === 'ap' ? 'position-btn active' : 'position-btn'}
+                  onClick={() => {
+                    setMode('ap')
+                    if (numRounds > 3) setNumRounds(3) // Cap rounds for parliamentary
+                  }}
+                >
+                  AP
+                  <small>American Parliamentary</small>
                 </button>
               </div>
+            </div>
+
+            <div className="form-group">
+              <label>Difficulty</label>
+              <select
+                value={difficulty}
+                onChange={(e) => setDifficulty(e.target.value)}
+                className="input-large"
+              >
+                <option value="beginner">Beginner — Get used to debating!</option>
+                <option value="intermediate">Intermediate — Good for getting reps in</option>
+                <option value="advanced">Advanced — Train seriously</option>
+              </select>
             </div>
 
             <div className="form-group">
@@ -1088,7 +1116,7 @@ function App() {
                 onChange={(e) => setNumRounds(parseInt(e.target.value))}
                 className="input-large"
               >
-                {mode === 'parliamentary' ? (
+                {(mode === 'wsdc' || mode === 'ap') ? (
                   <>
                     <option value={1}>1 Round</option>
                     <option value={2}>2 Rounds</option>
@@ -1208,7 +1236,7 @@ function App() {
             <div className="empty-state">
               <p>
                 {debate?.next_speaker === 'assistant'
-                  ? debate?.mode === 'parliamentary'
+                  ? (debate?.mode === 'wsdc' || debate?.mode === 'ap')
                     ? 'Waiting for AI to generate opening argument... (usually takes 10-20 seconds)'
                     : 'Waiting for AI to generate opening argument...'
                   : 'Make your first argument!'}
@@ -1247,7 +1275,7 @@ function App() {
                   <span></span>
                   <span></span>
                 </div>
-                {debate?.mode === 'parliamentary' && (
+                {(debate?.mode === 'wsdc' || debate?.mode === 'ap') && (
                   <div style={{ marginTop: '8px', fontSize: '12px', color: '#8b92a7' }}>
                     Generating response... (usually takes 10-20 seconds)
                   </div>
