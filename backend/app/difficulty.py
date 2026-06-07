@@ -91,8 +91,10 @@ DIFFICULTY: dict[Difficulty, DifficultyConfig] = {
         ),
         score_floor=5.0,
     ),
-    # Intermediate = today's behavior, byte-for-byte.
-    "intermediate": DifficultyConfig(),
+    # Intermediate = today's behavior, with a tighter RAG net (top_k 6 → 4) to
+    # trim input tokens. Top-ranked corpus hits dominate retrieval quality anyway;
+    # chunks 5–6 rarely change the speech but pay full input cost every call.
+    "intermediate": DifficultyConfig(rag_top_k=4),
     "advanced": DifficultyConfig(
         prompt_addendum=(
             "DIFFICULTY: ADVANCED\n"
