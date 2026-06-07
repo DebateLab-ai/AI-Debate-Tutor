@@ -82,17 +82,33 @@ function LandingPage() {
 
           <section className="landing-features" aria-label="Features">
             <article className="feature-card">
-              <div className="feature-icon" aria-hidden="true">🎯</div>
+              <div className="feature-icon" aria-hidden="true">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <circle cx="12" cy="12" r="6" />
+                  <circle cx="12" cy="12" r="2" />
+                </svg>
+              </div>
               <h2>Targeted Practice</h2>
               <p>Focus on specific skills with weakness-based drills for rebuttal, structure, weighing, evidence, and strategy.</p>
             </article>
             <article className="feature-card">
-              <div className="feature-icon" aria-hidden="true">🎓</div>
+              <div className="feature-icon" aria-hidden="true">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 10v6" />
+                  <path d="M2 10l10-5 10 5-10 5z" />
+                  <path d="M6 12v5c3 3 9 3 12 0v-5" />
+                </svg>
+              </div>
               <h2>Yale Debate</h2>
               <p>Built by members of the <strong>Yale Debate Association</strong> and former national team members. Trained on hundreds of hours of pro-level debate content.</p>
             </article>
             <article className="feature-card">
-              <div className="feature-icon" aria-hidden="true">⚡</div>
+              <div className="feature-icon" aria-hidden="true">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                </svg>
+              </div>
               <h2>Instant Feedback</h2>
               <p>Receive real-time scoring and detailed feedback to improve your debate skills with every practice session.</p>
             </article>
