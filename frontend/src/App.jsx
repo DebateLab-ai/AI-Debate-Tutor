@@ -1091,7 +1091,7 @@ function App() {
                   }}
                 >
                   AP
-                  <small>American Parliamentary</small>
+                  <small> Asian Parliamentary</small>
                 </button>
               </div>
             </div>
@@ -1110,7 +1110,7 @@ function App() {
             </div>
 
             <div className="form-group">
-              <label>Number of Rounds</label>
+              <label>Number of Exchanges</label>
               <select
                 value={numRounds}
                 onChange={(e) => setNumRounds(parseInt(e.target.value))}
@@ -1118,25 +1118,19 @@ function App() {
               >
                 {(mode === 'wsdc' || mode === 'ap') ? (
                   <>
-                    <option value={1}>1 Round</option>
-                    <option value={2}>2 Rounds</option>
-                    <option value={3}>3 Rounds</option>
+                    <option value={1}>1 Exchange</option>
+                    <option value={2}>2 Exchanges</option>
+                    <option value={3}>3 Exchanges</option>
                   </>
                 ) : (
                   <>
-                    <option value={1}>1 Round</option>
-                    <option value={2}>2 Rounds</option>
-                    <option value={3}>3 Rounds</option>
-                    <option value={4}>4 Rounds</option>
-                    <option value={5}>5 Rounds</option>
-                    <option value={6}>6 Rounds</option>
-                    <option value={7}>7 Rounds</option>
-                    <option value={8}>8 Rounds</option>
-                    <option value={9}>9 Rounds</option>
-                    <option value={10}>10 Rounds</option>
+                    <option value={1}>1 Exchange</option>
+                    <option value={2}>2 Exchanges</option>
+                    <option value={3}>3 Exchanges</option>
                   </>
                 )}
               </select>
+              <p className="field-hint">1 exchange = one back-and-forth between you and the opponent.</p>
             </div>
 
             <div className="form-group">
@@ -1217,7 +1211,7 @@ function App() {
             <p className="header-subtitle">
               Your position: <strong>{position === 'for' ? 'FOR' : 'AGAINST'}</strong>
               {' • '}
-              Round {debate?.current_round || 1} of {debate?.num_rounds || 3}
+              Exchange {debate?.current_round || 1} of {debate?.num_rounds || 3}
               {' • '}
               <span className={`status ${debate?.status || 'active'}`}>
                 {debate?.status === 'active' ? 'Active' : 'Completed'}
@@ -1256,7 +1250,7 @@ function App() {
                     : `AI (${position === 'for' ? 'AGAINST' : 'FOR'})`
                   }
                 </span>
-                <span className="message-round">Round {message.round_no}</span>
+                <span className="message-round">Exchange {message.round_no}</span>
               </div>
               <div className="message-content">{renderMarkdown(message.content)}</div>
             </div>
