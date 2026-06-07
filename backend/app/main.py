@@ -2094,3 +2094,10 @@ def health():
         "messages_count": sum(len(msgs) for msgs in MESSAGES.values()),
         "scores_count": len(SCORES)
     }
+
+
+# Public third-party API router. Mounted last so generate_ai_turn_text and
+# compute_debate_score (which api_v1 lazy-imports inside endpoint bodies) are
+# already defined by the time any request resolves them.
+from app import api_v1  # noqa: E402
+app.include_router(api_v1.router)
