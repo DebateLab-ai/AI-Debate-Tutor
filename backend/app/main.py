@@ -209,7 +209,7 @@ class Debate(BaseModel):
     status: Status = "active"
     created_at: datetime
     updated_at: datetime
-    mode: Literal["casual", "parliamentary"] = "casual"
+    mode: Literal["casual", "wsdc", "ap"] = "casual"
     # Per-debate difficulty tier. Default preserves today's behavior for any
     # existing or unspecified caller; new clients (the third-party API) can
     # opt into "beginner" or "advanced".
@@ -277,7 +277,7 @@ class DebateCreate(BaseModel):
     title: Optional[str] = Field(default=None, max_length=500)  # Max 500 characters for topic
     num_rounds: int = Field(ge=1, le=10)  # Max 10 for casual mode, validated in endpoint
     starter: Speaker
-    mode: Literal["casual", "parliamentary"] = "casual"
+    mode: Literal["casual", "wsdc", "ap"] = "casual"
     # Optional; defaults to intermediate (today's behavior).
     difficulty: Difficulty = DEFAULT_DIFFICULTY
 
@@ -291,7 +291,7 @@ class DebateOut(BaseModel):
     status: Status
     created_at: datetime
     updated_at: datetime
-    mode: Literal["casual", "parliamentary"] = "casual"
+    mode: Literal["casual", "wsdc", "ap"] = "casual"
     difficulty: Difficulty = DEFAULT_DIFFICULTY
 
 class MessageOut(BaseModel):
@@ -505,8 +505,8 @@ def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
     cfg = get_difficulty_config(debate.difficulty)
     picked_rag = get_rag_for(debate.difficulty)
 
-    # ── WSDC two-pass pipeline (intermediate + advanced, parliamentary only) ──
-    if debate.mode == "parliamentary" and debate.difficulty in ("intermediate", "advanced"):
+    # ── WSDC/AP two-pass pipeline (intermediate + advanced, parliamentary or ap) ──
+    if debate.mode in ("wsdc", "ap") and debate.difficulty in ("intermediate", "advanced"):
         side = "Opposition" if debate.starter == "user" else "Government"
         opponent_messages = [m for m in messages if m.speaker != "assistant"]
         is_rebuttal = len(opponent_messages) > 0
@@ -519,6 +519,7 @@ def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
                 is_rebuttal=is_rebuttal,
                 opponent_speech=opponent_speech,
                 difficulty=debate.difficulty,
+                format=debate.mode,
                 top_k=cfg.rag_top_k,
                 min_score=cfg.rag_min_score,
             )
@@ -526,7 +527,7 @@ def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
             print(f"[WSDC] Pipeline failed: {e}, falling back to basic generation")
 
     # Beginner skips RAG so the prompt addendum governs.
-    use_rag = cfg.use_rag and debate.mode == "parliamentary" and picked_rag is not None
+    use_rag = cfg.use_rag and debate.mode == "wsdc" and picked_rag is not None
 
     # If we have RAG, parliamentary mode, and this is a rebuttal (not the first turn)
     if use_rag and len(messages) > 0:
@@ -1098,7 +1099,7 @@ def _score_out_from_breakdown(debate_id: UUID, breakdown: ScoreBreakdown) -> Sco
 @app.post("/v1/debates", response_model=DebateOut, status_code=201)
 def create_debate(body: DebateCreate):
     # Validate num_rounds based on mode
-    if body.mode == "parliamentary" and body.num_rounds > 3:
+    if body.mode == "wsdc" and body.num_rounds > 3:
         raise HTTPException(400, "Parliamentary mode supports up to 3 rounds")
     if body.mode == "casual" and body.num_rounds > 10:
         raise HTTPException(400, "Casual mode supports up to 10 rounds")
@@ -1187,7 +1188,32 @@ def generate_ai_turn_text_stream_sync(debate: Debate, messages: List[Message]):
     motion = debate.title if debate.title else "General debate topic"
     cfg = get_difficulty_config(debate.difficulty)
     picked_rag = get_rag_for(debate.difficulty)
-    use_rag = cfg.use_rag and debate.mode == "parliamentary" and picked_rag is not None
+
+    # ── WSDC/AP two-pass pipeline (intermediate + advanced, parliamentary or ap) ──
+    print(f"[WSDC-stream] mode={debate.mode} difficulty={debate.difficulty}")
+    if debate.mode in ("wsdc", "ap") and debate.difficulty in ("intermediate", "advanced"):
+        side = "Opposition" if debate.starter == "user" else "Government"
+        opponent_messages = [m for m in messages if m.speaker != "assistant"]
+        is_rebuttal = len(opponent_messages) > 0
+        opponent_speech = opponent_messages[-1].content if is_rebuttal else None
+        try:
+            result = generate_wsdc_speech(
+                rag=picked_rag,
+                motion=motion,
+                side=side,
+                is_rebuttal=is_rebuttal,
+                opponent_speech=opponent_speech,
+                difficulty=debate.difficulty,
+                format=debate.mode,
+                top_k=cfg.rag_top_k,
+                min_score=cfg.rag_min_score,
+            )
+            yield result
+            return
+        except Exception as e:
+            print(f"[WSDC-stream] Pipeline failed: {e}, falling back")
+
+    use_rag = cfg.use_rag and debate.mode == "wsdc" and picked_rag is not None
 
     # If we have RAG, parliamentary mode, and this is a rebuttal (not the first turn)
     if use_rag and len(messages) > 0:

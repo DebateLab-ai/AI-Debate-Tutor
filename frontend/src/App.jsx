@@ -144,8 +144,8 @@ function App() {
   const [selectedCategory, setSelectedCategory] = useState(null)
   const [position, setPosition] = useState('for') // 'for' or 'against'
   const [numRounds, setNumRounds] = useState(2)
-  const [mode, setMode] = useState('casual') // 'parliamentary' or 'casual'
-  // Difficulty tier — dev-only picker (gated on import.meta.env.DEV below).
+  const [mode, setMode] = useState('casual') // 'casual' | 'wsdc' | 'ap'
+  // Difficulty tier — user-selectable at debate creation.
   // In production builds this stays at 'intermediate', matching today's behavior.
   const [difficulty, setDifficulty] = useState('intermediate')
   const [setupComplete, setSetupComplete] = useState(false)
@@ -1074,46 +1074,40 @@ function App() {
                   <small>Conversational</small>
                 </button>
                 <button
-                  className={mode === 'parliamentary' ? 'position-btn active' : 'position-btn'}
+                  className={mode === 'wsdc' ? 'position-btn active' : 'position-btn'}
                   onClick={() => {
-                    setMode('parliamentary')
+                    setMode('wsdc')
                     if (numRounds > 3) setNumRounds(3) // Cap rounds for parliamentary
                   }}
                 >
-                  Parliamentary
-                  <small>Competition-level debate</small>
+                  WSDC
+                  <small>World Schools format</small>
+                </button>
+                <button
+                  className={mode === 'ap' ? 'position-btn active' : 'position-btn'}
+                  onClick={() => {
+                    setMode('ap')
+                    if (numRounds > 3) setNumRounds(3) // Cap rounds for parliamentary
+                  }}
+                >
+                  AP
+                  <small>American Parliamentary</small>
                 </button>
               </div>
             </div>
 
-            {import.meta.env.DEV && (
-              <div
-                className="form-group"
-                style={{
-                  border: '1px dashed #999',
-                  padding: '10px',
-                  borderRadius: '6px',
-                  background: '#fafafa',
-                }}
+            <div className="form-group">
+              <label>Difficulty</label>
+              <select
+                value={difficulty}
+                onChange={(e) => setDifficulty(e.target.value)}
+                className="input-large"
               >
-                <label style={{ fontFamily: 'monospace', fontSize: '0.85rem', color: '#666' }}>
-                  [dev only] Difficulty
-                </label>
-                <select
-                  value={difficulty}
-                  onChange={(e) => setDifficulty(e.target.value)}
-                  className="input-large"
-                  style={{ fontFamily: 'monospace' }}
-                >
-                  <option value="beginner">beginner — shorter, peer voice, lenient scoring</option>
-                  <option value="intermediate">intermediate — today&apos;s behavior (default)</option>
-                  <option value="advanced">advanced — named techniques, sharper</option>
-                </select>
-                <small style={{ display: 'block', marginTop: '6px', color: '#888' }}>
-                  Hidden in production builds. Tier is locked at debate creation.
-                </small>
-              </div>
-            )}
+                <option value="beginner">Beginner — Get used to debating!</option>
+                <option value="intermediate">Intermediate — Good for getting reps in</option>
+                <option value="advanced">Advanced — Train seriously</option>
+              </select>
+            </div>
 
             <div className="form-group">
               <label>Number of Rounds</label>
@@ -1122,7 +1116,7 @@ function App() {
                 onChange={(e) => setNumRounds(parseInt(e.target.value))}
                 className="input-large"
               >
-                {mode === 'parliamentary' ? (
+                {(mode === 'wsdc' || mode === 'ap') ? (
                   <>
                     <option value={1}>1 Round</option>
                     <option value={2}>2 Rounds</option>
@@ -1242,7 +1236,7 @@ function App() {
             <div className="empty-state">
               <p>
                 {debate?.next_speaker === 'assistant'
-                  ? debate?.mode === 'parliamentary'
+                  ? (debate?.mode === 'wsdc' || debate?.mode === 'ap')
                     ? 'Waiting for AI to generate opening argument... (usually takes 10-20 seconds)'
                     : 'Waiting for AI to generate opening argument...'
                   : 'Make your first argument!'}
@@ -1281,7 +1275,7 @@ function App() {
                   <span></span>
                   <span></span>
                 </div>
-                {debate?.mode === 'parliamentary' && (
+                {(debate?.mode === 'wsdc' || debate?.mode === 'ap') && (
                   <div style={{ marginTop: '8px', fontSize: '12px', color: '#8b92a7' }}>
                     Generating response... (usually takes 10-20 seconds)
                   </div>
