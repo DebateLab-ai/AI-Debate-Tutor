@@ -1099,8 +1099,8 @@ def _score_out_from_breakdown(debate_id: UUID, breakdown: ScoreBreakdown) -> Sco
 @app.post("/v1/debates", response_model=DebateOut, status_code=201)
 def create_debate(body: DebateCreate):
     # Validate num_rounds based on mode
-    if body.mode == "wsdc" and body.num_rounds > 3:
-        raise HTTPException(400, "Parliamentary mode supports up to 3 rounds")
+    if body.mode in ("wsdc", "ap") and body.num_rounds > 3:
+        raise HTTPException(400, "Parliamentary modes support up to 3 rounds")
     if body.mode == "casual" and body.num_rounds > 10:
         raise HTTPException(400, "Casual mode supports up to 10 rounds")
     
