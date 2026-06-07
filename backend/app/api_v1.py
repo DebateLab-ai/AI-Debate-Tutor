@@ -16,6 +16,7 @@ from typing import Any, Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.auth import AuthContext, verify_api_key
@@ -437,6 +438,49 @@ def get_debate(
         **out.dict(),
         messages=[_message_out(m) for m in msgs],
         score=_score_out(score) if score else None,
+    )
+
+
+@router.get("/debates/{debate_id}/report.pdf", responses={200: {"content": {"application/pdf": {}}}})
+def get_debate_report(
+    debate_id: UUID,
+    background_tasks: BackgroundTasks,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    """Render the debate report as a PDF. Two sections: feedback + transcript.
+
+    400 if the debate hasn't been scored yet (nothing to report on).
+    503 if the PDF renderer can't load (missing system deps in production).
+    """
+    start = time.monotonic()
+    endpoint = "GET /api/v1/debates/{id}/report.pdf"
+
+    debate = debates_store.get_debate(tenant_id=auth.tenant_id, debate_id=debate_id)
+    if not debate:
+        _log(background_tasks, auth, endpoint, 404, int((time.monotonic() - start) * 1000))
+        raise HTTPException(404, "Debate not found")
+
+    score = debates_store.get_score(tenant_id=auth.tenant_id, debate_id=debate["id"])
+    if not score:
+        _log(background_tasks, auth, endpoint, 400, int((time.monotonic() - start) * 1000))
+        raise HTTPException(400, "Debate must be scored before a report can be generated. Call /finish first.")
+
+    messages = debates_store.list_messages(tenant_id=auth.tenant_id, debate_id=debate["id"])
+
+    from app.pdf import render_pdf  # lazy: missing system deps shouldn't kill the whole API on boot
+    try:
+        pdf_bytes = render_pdf(debate=debate, messages=messages, score=score)
+    except RuntimeError as e:
+        print(f"[api_v1] PDF render failed: {e}")
+        _log(background_tasks, auth, endpoint, 503, int((time.monotonic() - start) * 1000))
+        raise HTTPException(503, "PDF generation is temporarily unavailable.")
+
+    filename = f"debate_report_{str(debate['id'])[:8]}.pdf"
+    _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
