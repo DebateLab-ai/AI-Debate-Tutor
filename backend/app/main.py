@@ -739,6 +739,68 @@ def transcribe_with_whisper(audio_bytes: bytes, filename: str = "audio.wav") -> 
     return resp.text
 
 
+# Default scoring backend is Anthropic Haiku 4.5. The SCORING_MODEL env var lets
+# ops force a specific model (any OpenAI chat model with response_format support).
+_SCORING_MODEL_OVERRIDE = os.getenv("SCORING_MODEL", "").strip()
+_SCORING_HAIKU = "claude-haiku-4-5"
+
+
+def _call_scoring_llm(system_prompt: str, convo: list[dict], final_user_msg: str, openai_prompt: list[dict]) -> str:
+    """Run the scoring LLM call. Returns the raw JSON-shaped string for the caller to parse.
+
+    Order of attempts:
+      1. Anthropic Haiku 4.5 (default). Best feedback specificity for the price
+         per the comparison test on 2026-06-07.
+      2. OpenAI (model from SCORING_MODEL env, else gpt-4o). Used when Anthropic
+         errors out (no key, network failure, malformed JSON).
+
+    The fallback exists so a momentary Anthropic incident doesn't break scoring
+    for active debates — quality drops slightly, but the report still ships.
+    """
+    # Anthropic-first path. Skip outright if no key, so we don't burn latency.
+    if os.getenv("ANTHROPIC_API_KEY") and not _SCORING_MODEL_OVERRIDE.startswith("gpt"):
+        try:
+            from app.wsdc import _anthropic  # reuses the shared client
+            # Anthropic needs the transcript as one user message (no system/user
+            # interleaving like OpenAI). Reconstruct it from the convo list.
+            transcript_text = "\n\n".join(m["content"] for m in convo)
+            anth_user = f"{transcript_text}\n\n{final_user_msg}"
+            resp = _anthropic.messages.create(
+                model=_SCORING_HAIKU,
+                max_tokens=1024,
+                temperature=0.5,
+                system=system_prompt,
+                messages=[{"role": "user", "content": anth_user}],
+            )
+            raw = resp.content[0].text.strip()
+            # Anthropic doesn't have a JSON mode; strip ``` fences if present.
+            raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+            raw = re.sub(r"\s*```$", "", raw)
+            # Validate it's parseable JSON before declaring success — a malformed
+            # response should fall through to OpenAI rather than crash the caller.
+            json.loads(raw)
+            print(f"[scoring] Anthropic Haiku scored OK ({len(raw)} chars)")
+            return raw
+        except Exception as e:
+            print(f"[scoring] Anthropic Haiku failed ({type(e).__name__}: {e}); falling back to OpenAI")
+
+    # OpenAI fallback. Either Anthropic errored, no Anthropic key, or operator
+    # explicitly overrode SCORING_MODEL to an OpenAI model.
+    openai_model = _SCORING_MODEL_OVERRIDE if _SCORING_MODEL_OVERRIDE.startswith("gpt") else "gpt-4o"
+    try:
+        resp = client.chat.completions.create(
+            model=openai_model,
+            messages=openai_prompt,
+            temperature=0.5,
+            response_format={"type": "json_object"},
+        )
+        print(f"[scoring] OpenAI {openai_model} scored OK")
+        return resp.choices[0].message.content.strip()
+    except Exception as exc:
+        print(f"[ERROR] Both scoring backends failed; last error: {exc}")
+        raise HTTPException(502, "Unable to score debate at this time. Please try again.")
+
+
 def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakdown:
     if not client:
         raise HTTPException(503, "Scoring requires OpenAI API key")
@@ -921,22 +983,12 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
         },
     ]
 
-    # Use gpt-4o for scoring - better JSON schema compliance than gpt-4o-mini
-    scoring_model = os.getenv("SCORING_MODEL", "gpt-4o")
-    
-    try:
-        resp = client.chat.completions.create(
-            model=scoring_model,
-            messages=prompt,
-            temperature=0.5,
-            response_format={"type": "json_object"},  # Force JSON output
-        )
-    except Exception as exc:
-        # Log internally but never expose to user
-        print(f"[ERROR] Scoring API call failed: {exc}")
-        raise HTTPException(502, "Unable to score debate at this time. Please try again.")
-
-    raw = resp.choices[0].message.content.strip()
+    # Scoring: Anthropic Haiku 4.5 by default; GPT-4o as fallback when Anthropic
+    # is unavailable (missing key, API error, malformed JSON). Haiku gave the
+    # best feedback-specificity-per-dollar in the model comparison test:
+    # scripts/compare_scoring_models.py. Env override SCORING_MODEL still works
+    # if a future model wins another bake-off.
+    raw = _call_scoring_llm(system_prompt, convo, prompt[-1]["content"], prompt)
 
     try:
         parsed = json.loads(raw)
