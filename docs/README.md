@@ -14,6 +14,7 @@ https://api.debatelab.ai
 - **[Concepts](./concepts.md)** — modes, difficulty tiers, metadata, student IDs, rate limits
 - **[API reference](./reference.md)** — every endpoint, every parameter, every response shape
 - **[Errors](./errors.md)** — status codes and error response format
+- **[Safety](./safety.md)** — content moderation behavior and partner responsibilities
 - **[Examples](./examples/)** — full debate lifecycle in [curl](./examples/curl.md), [Python](./examples/python.md), and [JavaScript](./examples/javascript.md)
 
 ## What you can build
