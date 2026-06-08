@@ -1,0 +1,20 @@
+# Railway / nixpacks build config.
+#
+# Adds the OS-level system libraries WeasyPrint needs to render the partner-
+# facing PDF reports at /api/v1/debates/{id}/report.pdf. Without these, the
+# `from weasyprint import HTML` call in app/pdf.py raises ImportError on Linux
+# and the endpoint returns 503 (the rest of the API stays up — see app/pdf.py).
+#
+# If the build still fails after this lands, check the Railway build logs for
+# "Could not find Pango/Cairo" or similar; package name drift on the Debian
+# base image occasionally happens. Updated names are documented at:
+#   https://doc.courtbouillon.org/weasyprint/stable/first_steps.html#linux
+
+[phases.setup]
+aptPkgs = [
+  "libpango-1.0-0",
+  "libpangoft2-1.0-0",
+  "libharfbuzz0b",
+  "libfontconfig1",
+  "libgdk-pixbuf-2.0-0",
+]

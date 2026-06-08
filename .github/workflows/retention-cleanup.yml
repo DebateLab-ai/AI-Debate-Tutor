@@ -1,0 +1,50 @@
+name: retention-cleanup
+
+# Deletes debates older than 7 days from the third-party API store. Runs daily.
+#
+# Requires two repo secrets:
+#   SUPABASE_URL          — same value the backend uses
+#   SUPABASE_SERVICE_KEY  — same value the backend uses
+#
+# Set under: Settings → Secrets and variables → Actions → New repository secret.
+
+on:
+  schedule:
+    # 03:15 UTC daily — picked for a quiet window across our common time zones.
+    - cron: "15 3 * * *"
+  workflow_dispatch:
+    # Allows running on-demand from the Actions tab. Useful for testing.
+    inputs:
+      dry_run:
+        description: "Dry run (report only, no deletion)"
+        required: false
+        default: "false"
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install minimal deps
+        run: pip install supabase python-dotenv
+
+      - name: Run cleanup
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            python scripts/run_retention.py --dry-run
+          else
+            python scripts/run_retention.py
+          fi

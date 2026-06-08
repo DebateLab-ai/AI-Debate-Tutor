@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Debate Report — {{ motion }}</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 2cm 1.8cm;
+      @bottom-right {
+        content: "Page " counter(page) " of " counter(pages);
+        font-family: "Helvetica", "Arial", sans-serif;
+        font-size: 9pt;
+        color: #888;
+      }
+      @bottom-left {
+        content: "DebateLab AI — generated {{ generated_at }}";
+        font-family: "Helvetica", "Arial", sans-serif;
+        font-size: 9pt;
+        color: #888;
+      }
+    }
+
+    body {
+      font-family: "Helvetica", "Arial", sans-serif;
+      font-size: 11pt;
+      line-height: 1.5;
+      color: #1a1a1a;
+      margin: 0;
+    }
+
+    h1, h2, h3 {
+      color: #0d2540;
+      margin-top: 0;
+    }
+    h1 { font-size: 22pt; margin-bottom: 0.2em; }
+    h2 { font-size: 15pt; margin-top: 1.8em; border-bottom: 2px solid #0d2540; padding-bottom: 0.3em; }
+    h3 { font-size: 12pt; margin-top: 1.2em; margin-bottom: 0.3em; }
+
+    .header-card {
+      background: #f7f9fc;
+      border: 1px solid #d9e2ec;
+      border-radius: 6px;
+      padding: 16px 20px;
+      margin-bottom: 24px;
+    }
+
+    .motion-line {
+      font-size: 14pt;
+      font-weight: 600;
+      color: #0d2540;
+      margin: 0 0 12px 0;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px 24px;
+      font-size: 10pt;
+    }
+    .meta-grid div { padding: 1px 0; }
+    .meta-grid .label { color: #5a6b80; font-weight: 600; }
+
+    /* Overall score panel */
+    .score-panel {
+      display: flex;
+      gap: 24px;
+      align-items: center;
+      background: #fff;
+      border: 1px solid #d9e2ec;
+      border-radius: 6px;
+      padding: 18px 20px;
+      margin-bottom: 18px;
+    }
+    .overall-score {
+      font-size: 42pt;
+      font-weight: 700;
+      color: #0d2540;
+      line-height: 1;
+    }
+    .overall-score .of-ten {
+      font-size: 16pt;
+      color: #5a6b80;
+      font-weight: 400;
+    }
+    .overall-summary {
+      flex: 1;
+      font-size: 11pt;
+    }
+    .overall-summary .label { color: #5a6b80; font-size: 9pt; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+    .overall-summary .feedback-text { margin-top: 4px; }
+
+    /* Per-metric breakdown */
+    .metrics {
+      margin-top: 16px;
+    }
+    .metric-row {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid #eef2f7;
+    }
+    .metric-row:last-child { border-bottom: none; }
+    .metric-name {
+      flex: 0 0 130px;
+      font-weight: 600;
+      color: #0d2540;
+    }
+    .metric-bar-wrap {
+      flex: 0 0 160px;
+      background: #eef2f7;
+      height: 8px;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .metric-bar {
+      height: 100%;
+      background: #2563eb;
+    }
+    .metric-bar.low { background: #dc2626; }
+    .metric-bar.mid { background: #d97706; }
+    .metric-bar.high { background: #16a34a; }
+    .metric-score {
+      flex: 0 0 50px;
+      font-weight: 600;
+      text-align: right;
+    }
+    .metric-feedback {
+      flex: 1;
+      font-size: 10pt;
+      color: #334155;
+    }
+
+    .drill-card {
+      margin-top: 18px;
+      background: #fef9e7;
+      border: 1px solid #f1d97a;
+      border-left: 4px solid #b88a00;
+      border-radius: 4px;
+      padding: 14px 18px;
+    }
+    .drill-card .label {
+      color: #6b5400;
+      font-size: 9pt;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 700;
+    }
+    .drill-card .drill-name {
+      font-size: 13pt;
+      font-weight: 700;
+      color: #0d2540;
+      margin: 2px 0 6px 0;
+    }
+    .drill-card .drill-instruction {
+      font-size: 10.5pt;
+      line-height: 1.45;
+    }
+
+    /* Transcript */
+    .round-heading {
+      background: #eef2f7;
+      padding: 6px 14px;
+      border-radius: 4px;
+      font-weight: 700;
+      color: #0d2540;
+      margin-top: 18px;
+      margin-bottom: 10px;
+      font-size: 11pt;
+    }
+    .turn {
+      margin-bottom: 14px;
+      padding-left: 14px;
+      border-left: 3px solid #d9e2ec;
+    }
+    .turn.user { border-left-color: #2563eb; }
+    .turn.assistant { border-left-color: #94a3b8; }
+    .turn-speaker {
+      font-weight: 700;
+      font-size: 10pt;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 4px;
+    }
+    .turn.user .turn-speaker { color: #2563eb; }
+    .turn.assistant .turn-speaker { color: #475569; }
+    .turn-content {
+      white-space: pre-wrap;
+      font-size: 10.5pt;
+      line-height: 1.5;
+    }
+
+    /* Page break before transcript so feedback always opens fresh */
+    .transcript-section {
+      page-break-before: always;
+    }
+  </style>
+</head>
+<body>
+
+  {# ==================== HEADER ==================== #}
+  <h1>Debate Report</h1>
+
+  {# Mode acronyms render uppercase; difficulty is a plain word so capitalize. #}
+  {% set mode_display = mode|upper if mode|lower in ['wsdc', 'ap', 'wsc'] else mode|capitalize %}
+  <div class="header-card">
+    <p class="motion-line">{{ motion }}</p>
+    <div class="meta-grid">
+      <div><span class="label">Date:</span> {{ date_str }}</div>
+      <div><span class="label">Mode:</span> {{ mode_display }}</div>
+      <div><span class="label">Difficulty:</span> {{ difficulty|capitalize }}</div>
+      <div><span class="label">Rounds:</span> {{ num_rounds }}</div>
+      {% for key, value in metadata.items() %}
+        <div><span class="label">{{ key }}:</span> {{ value }}</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  {# ==================== SECTION 1: FEEDBACK + NEXT STEPS ==================== #}
+  <h2>1. Feedback &amp; Next Steps</h2>
+
+  <div class="score-panel">
+    <div class="overall-score">
+      {{ "%.1f"|format(score.overall|float) }}<span class="of-ten">/10</span>
+    </div>
+    <div class="overall-summary">
+      <div class="label">Overall judgement</div>
+      <div class="feedback-text">{{ score.feedback }}</div>
+    </div>
+  </div>
+
+  <div class="metrics">
+    {% set metric_specs = [
+      ("Content & Structure", score.content_structure, score.content_structure_feedback),
+      ("Engagement", score.engagement, score.engagement_feedback),
+      ("Strategy", score.strategy, score.strategy_feedback),
+    ] %}
+    {% for name, value, feedback in metric_specs %}
+      {% set v = value|float %}
+      {% set bar_class = "low" if v < 5 else ("mid" if v < 7 else "high") %}
+      <div class="metric-row">
+        <div class="metric-name">{{ name }}</div>
+        <div class="metric-bar-wrap">
+          <div class="metric-bar {{ bar_class }}" style="width: {{ (v * 10)|round(0, 'common') }}%;"></div>
+        </div>
+        <div class="metric-score">{{ "%.1f"|format(v) }}/10</div>
+      </div>
+      <div style="padding: 2px 0 10px 142px; font-size: 10pt; color: #334155;">{{ feedback }}</div>
+    {% endfor %}
+  </div>
+
+  <div class="drill-card">
+    <div class="label">Recommended next drill</div>
+    <div class="drill-name">{{ drill_name }}</div>
+    <div class="drill-instruction">{{ drill_instruction }}</div>
+  </div>
+
+  {# ==================== SECTION 2: TRANSCRIPT ==================== #}
+  <div class="transcript-section">
+    <h2>2. Debate Transcript</h2>
+
+    {% if not rounds %}
+      <p><em>No turns were recorded for this debate.</em></p>
+    {% endif %}
+
+    {% for r in rounds %}
+      <div class="round-heading">Round {{ r.round_no }}</div>
+      {% for turn in r.turns %}
+        <div class="turn {{ turn.speaker }}">
+          <div class="turn-speaker">
+            {% if turn.speaker == "user" %}Student{% else %}AI{% endif %}
+          </div>
+          <div class="turn-content">{{ turn.content }}</div>
+        </div>
+      {% endfor %}
+    {% endfor %}
+  </div>
+
+</body>
+</html>

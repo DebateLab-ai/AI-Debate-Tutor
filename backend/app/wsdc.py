@@ -3,10 +3,16 @@ Two-pass WSDC speech generation for intermediate and advanced difficulty.
 
 Pass 1 — Structure: LLM outputs strict JSON covering opening, arguments,
           clashes/rebuttals, close. Low temperature; schema enforced.
-          Model: Claude Sonnet 4.6 (both tiers)
+          Model: Claude Sonnet 4.6 (both tiers).
 
-Pass 2 — Polish: LLM renders the JSON to spoken WSDC prose.
-          Model: Claude Sonnet 4.6 (intermediate), Claude Opus 4.7 (advanced)
+Pass 2 — Render: LLM renders the JSON to spoken prose.
+          Model: Haiku 4.5 for AP (any tier) and WSDC intermediate;
+                 Sonnet 4.6 for WSDC advanced.
+          Rationale: Pass 1 carries the argumentation; Pass 2 is delivery.
+          AP already uses Haiku successfully — applying it to WSDC
+          intermediate cuts ~50% of per-turn output cost with no observed
+          quality drop. Advanced WSDC stays on Sonnet because tournament-
+          level airtightness is the whole brand promise of that tier.
 
 To revert to OpenAI, swap this file with wsdc_chatGPT.py.
 """
@@ -88,7 +94,29 @@ Use rebuttals[] OR clashes[] — not both. Set the unused array to []. new_argum
 
 # ── Pass 1 ─────────────────────────────────────────────────────────────────
 
-def _pass1_prompt(
+def _pass1_system(is_rebuttal: bool) -> list[dict]:
+    """The static portion of the Pass 1 prompt — task framing, hard rules,
+    and the output schema. Marked cache_control: ephemeral so repeat calls
+    within ~5 minutes pay ~10% of input cost on this prefix.
+
+    Cache key is (model, full system content), so first-speaker and rebuttal
+    paths get their own cache slots — both common enough to amortize the write.
+    """
+    schema = _REBUTTAL_SCHEMA if is_rebuttal else _FIRST_SPEAKER_SCHEMA
+    text = f"""You are generating a parliamentary debate speech. Output STRICT JSON only — no prose, no markdown, no commentary.
+
+Hard rules:
+- Never repeat the motion
+- Tone: patient and composed; explain why the other side is wrong, never personal
+- LOGIC > EXAMPLES. Mechanisms must be reasoning chains built from well-known facts that any layman would accept — not "evidence" cited like a research paper. Never say "research shows", "studies indicate", "a 2021 report found". Examples ground the logic; they do not replace it. A speech with three sharp logical mechanisms beats a speech with three name-drops every time.
+- Accessible to a complete layman — if a concept needs intro-level explanation, give it
+
+Output this schema (fill every field; null where marked optional):
+{schema}"""
+    return [{"type": "text", "text": text, "cache_control": {"type": "ephemeral"}}]
+
+
+def _pass1_user(
     motion: str,
     side: str,
     is_rebuttal: bool,
@@ -98,7 +126,6 @@ def _pass1_prompt(
     format: str,
 ) -> str:
     sign_off = "Proud to propose" if side == "Government" else "Proud to oppose"
-    schema = _REBUTTAL_SCHEMA if is_rebuttal else _FIRST_SPEAKER_SCHEMA
 
     if difficulty == "advanced":
         difficulty_note = (
@@ -127,27 +154,16 @@ def _pass1_prompt(
         if is_rebuttal and opponent_speech else ""
     )
 
-    return f"""You are generating a parliamentary debate speech. Output STRICT JSON only — no prose, no markdown, no commentary.
-
-Motion: {motion}
+    return f"""Motion: {motion}
 Side: {side} ({'PROPOSE' if side == 'Government' else 'OPPOSE'} the motion)
 Speaker: {'Rebuttal / later speaker' if is_rebuttal else 'First speaker'}
 Sign-off: {sign_off}
 
 {difficulty_note}
 
-{format_note}
+{format_note}{opponent_block}
 
-Hard rules:
-- Never repeat the motion
-- Tone: patient and composed; explain why the other side is wrong, never personal
-- LOGIC > EXAMPLES. Mechanisms must be reasoning chains built from well-known facts that any layman would accept — not "evidence" cited like a research paper. Never say "research shows", "studies indicate", "a 2021 report found". Examples ground the logic; they do not replace it. A speech with three sharp logical mechanisms beats a speech with three name-drops every time.
-- Accessible to a complete layman — if a concept needs intro-level explanation, give it{opponent_block}
-
-{context_block}
-
-Output this schema (fill every field; null where marked optional):
-{schema}"""
+{context_block}"""
 
 
 def _run_pass1(
@@ -159,14 +175,16 @@ def _run_pass1(
     difficulty: str,
     format: str,
 ) -> dict:
-    prompt = _pass1_prompt(motion, side, is_rebuttal, opponent_speech, context_block, difficulty, format)
+    system = _pass1_system(is_rebuttal)
+    user_msg = _pass1_user(motion, side, is_rebuttal, opponent_speech, context_block, difficulty, format)
     temp = 0.35 if difficulty == "advanced" else 0.4
 
     resp = _anthropic.messages.create(
         model=_SONNET,
         max_tokens=2048,
         temperature=temp,
-        messages=[{"role": "user", "content": prompt}],
+        system=system,
+        messages=[{"role": "user", "content": user_msg}],
     )
     raw = resp.content[0].text.strip()
 
@@ -226,7 +244,13 @@ JSON:
 
 def _run_pass2(speech_json: dict, difficulty: str, format: str) -> str:
     prompt = _pass2_prompt(speech_json, difficulty, format)
-    model = _HAIKU if format == "ap" else _SONNET
+    # WSDC advanced is the only tier we still send to Sonnet — it's the
+    # "tournament-level" promise. Everything else (AP both tiers, WSDC
+    # intermediate) runs on Haiku, ~3x cheaper on output tokens.
+    if format == "ap" or difficulty == "intermediate":
+        model = _HAIKU
+    else:
+        model = _SONNET
 
     resp = _anthropic.messages.create(
         model=model,
