@@ -195,6 +195,22 @@ def main() -> None:
                 fail(f"debate status after finish should be 'completed', got {r['status']}")
             ok("GET after finish reflects completed status + score")
 
+            # 11. PDF download — content type + non-empty body + tenant isolation.
+            r = client.get(f"/api/v1/debates/{debate_id}/report.pdf", headers=headers_a)
+            if r.status_code != 200:
+                fail(f"PDF endpoint failed: {r.status_code} {r.text[:200]}")
+            if r.headers.get("content-type") != "application/pdf":
+                fail(f"PDF content-type wrong: {r.headers.get('content-type')}")
+            if not r.content.startswith(b"%PDF-"):
+                fail(f"PDF body doesn't start with magic bytes: {r.content[:20]!r}")
+            ok(f"PDF downloaded ({len(r.content):,} bytes, type={r.headers['content-type']})")
+
+            # 12. Tenant B can't download tenant A's PDF.
+            r = client.get(f"/api/v1/debates/{debate_id}/report.pdf", headers=headers_b)
+            if r.status_code != 404:
+                fail(f"SECURITY: tenant B got status {r.status_code} on tenant A's PDF")
+            ok("tenant B fetching tenant A's PDF → 404")
+
             print(f"\n{GREEN}Full lifecycle passed.{RESET} Phase 2 endpoints are sound.")
 
     finally:
