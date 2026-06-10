@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from app.auth import AuthContext, verify_api_key
 from app.usage import log_usage
 from app import debates_store
-from app.safety import assert_input_safe
+from app.safety import assert_input_safe, screen_output
 
 router = APIRouter(prefix="/api/v1", tags=["public-api"])
 
@@ -235,6 +235,10 @@ def create_debate(
         _log(background_tasks, auth, "POST /api/v1/debates", 400, int((time.monotonic() - start) * 1000))
         raise HTTPException(400, "Parliamentary modes support up to 3 rounds")
 
+    # Safety screen the motion — it is fed into every prompt and rendered on the
+    # PDF report, same exposure as a debate turn.
+    assert_input_safe(body.motion, where="debate motion")
+
     try:
         debate = debates_store.create_debate(
             tenant_id=auth.tenant_id,
@@ -324,7 +328,9 @@ def submit_turn(
     internal_debate = _db_to_internal_debate(debate_for_round)
     internal_msgs = _db_to_internal_messages(all_msgs)
     try:
-        ai_text = generate_ai_turn_text(internal_debate, internal_msgs)
+        # Same output safety gate as the website path: a flagged or unverifiable
+        # generation is replaced with a safe fallback (fail-closed).
+        ai_text = screen_output(generate_ai_turn_text(internal_debate, internal_msgs))
     except Exception as e:
         print(f"[api_v1] AI generation failed: {type(e).__name__}: {e}")
         _log(background_tasks, auth, endpoint, 502, int((time.monotonic() - start) * 1000))
@@ -376,6 +382,14 @@ def finish_debate(
     if not debate:
         _log(background_tasks, auth, endpoint, 404, int((time.monotonic() - start) * 1000))
         raise HTTPException(404, "Debate not found")
+
+    # Idempotent (as documented in docs/reference.md): if the debate has already
+    # been scored, return the stored score instead of re-running the scoring LLM.
+    # Keeps retries free and deterministic.
+    existing = debates_store.get_score(tenant_id=auth.tenant_id, debate_id=debate["id"])
+    if existing:
+        _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
+        return _score_out(existing)
 
     msgs = debates_store.list_messages(tenant_id=auth.tenant_id, debate_id=debate["id"])
     if not msgs:
