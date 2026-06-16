@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import Any, Literal, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
@@ -25,6 +25,8 @@ from app import debates_store
 from app.safety import assert_input_safe
 
 router = APIRouter(prefix="/api/v1", tags=["public-api"])
+
+IDEMPOTENCY_KEY_MAX_LEN = 128
 
 
 # ---------- Public-facing Pydantic schemas ----------
@@ -76,6 +78,14 @@ class TurnIn(BaseModel):
 class TurnOut(BaseModel):
     debate_id: UUID
     user_message: MessageOut
+    assistant_message: Optional[MessageOut] = None
+    current_round: int
+    next_speaker: Optional[Speaker]
+    status: Status
+
+
+class OpenOut(BaseModel):
+    debate_id: UUID
     assistant_message: MessageOut
     current_round: int
     next_speaker: Optional[Speaker]
@@ -222,6 +232,98 @@ def _log(bg: BackgroundTasks, auth: AuthContext, endpoint: str, status_code: int
     )
 
 
+def _normalize_idempotency_key(raw: Optional[str]) -> Optional[str]:
+    if raw is None:
+        return None
+    key = raw.strip()
+    if not key:
+        return None
+    if len(key) > IDEMPOTENCY_KEY_MAX_LEN:
+        raise HTTPException(
+            400,
+            f"Idempotency-Key must be at most {IDEMPOTENCY_KEY_MAX_LEN} characters",
+        )
+    return key
+
+
+def _idempotency_cached(
+    auth: AuthContext,
+    key: Optional[str],
+    endpoint: str,
+) -> Optional[tuple[int, dict[str, Any]]]:
+    if not key:
+        return None
+    rec = debates_store.get_idempotency_record(
+        tenant_id=auth.tenant_id,
+        idempotency_key=key,
+    )
+    if not rec:
+        return None
+    if rec["endpoint"] != endpoint:
+        raise HTTPException(
+            409,
+            "Idempotency-Key was already used for a different endpoint",
+        )
+    return int(rec["response_status"]), rec["response_body"]
+
+
+def _save_idempotency(
+    auth: AuthContext,
+    key: Optional[str],
+    endpoint: str,
+    status_code: int,
+    body: BaseModel,
+) -> None:
+    if not key:
+        return
+    debates_store.save_idempotency_record(
+        tenant_id=auth.tenant_id,
+        idempotency_key=key,
+        endpoint=endpoint,
+        response_status=status_code,
+        response_body=body.dict(),
+    )
+
+
+def _generate_assistant_text(debate: dict[str, Any], tenant_id: str) -> str:
+    all_msgs = debates_store.list_messages(tenant_id=tenant_id, debate_id=debate["id"])
+    from app.main import generate_ai_turn_text  # lazy
+    internal_debate = _db_to_internal_debate(debate)
+    internal_msgs = _db_to_internal_messages(all_msgs)
+    return generate_ai_turn_text(internal_debate, internal_msgs)
+
+
+def _complete_assistant_turn(
+    *,
+    tenant_id: str,
+    debate: dict[str, Any],
+    ai_text: str,
+) -> tuple[dict[str, Any], int, Optional[Speaker], Status]:
+    """Persist an assistant message and advance debate state."""
+    round_no = debate["current_round"]
+    ai_msg = debates_store.append_message(
+        tenant_id=tenant_id,
+        debate_id=debate["id"],
+        round_no=round_no,
+        speaker="assistant",
+        content=ai_text,
+    )
+    final_round, final_next, final_status = _advance_state(
+        starter=debate["starter"],
+        current_round=round_no,
+        num_rounds=debate["num_rounds"],
+        just_spoke="assistant",
+    )
+    debates_store.update_debate_state(
+        tenant_id=tenant_id,
+        debate_id=debate["id"],
+        current_round=final_round,
+        next_speaker=final_next,
+        status=final_status,
+    )
+    return ai_msg, final_round, None if final_status == "completed" else final_next, final_status
+
+
 # ---------- Endpoints ----------
 
 @router.post("/debates", response_model=DebateOut, status_code=201)
@@ -254,15 +356,81 @@ def create_debate(
     return _debate_out(debate)
 
 
+@router.post("/debates/{debate_id}/open", response_model=OpenOut)
+def open_debate(
+    debate_id: UUID,
+    background_tasks: BackgroundTasks,
+    auth: AuthContext = Depends(verify_api_key),
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
+):
+    """Generate the AI opening speech when starter is assistant (next_speaker=assistant)."""
+    start = time.monotonic()
+    endpoint = "POST /api/v1/debates/{id}/open"
+    idem_key = _normalize_idempotency_key(idempotency_key)
+
+    cached = _idempotency_cached(auth, idem_key, endpoint)
+    if cached:
+        status_code, body = cached
+        _log(background_tasks, auth, endpoint, status_code, int((time.monotonic() - start) * 1000))
+        return OpenOut(**body)
+
+    debate = debates_store.get_debate(tenant_id=auth.tenant_id, debate_id=debate_id)
+    if not debate:
+        _log(background_tasks, auth, endpoint, 404, int((time.monotonic() - start) * 1000))
+        raise HTTPException(404, "Debate not found")
+    if debate["status"] != "active":
+        _log(background_tasks, auth, endpoint, 400, int((time.monotonic() - start) * 1000))
+        raise HTTPException(400, f"Debate is {debate['status']}")
+    if debate["next_speaker"] != "assistant":
+        _log(background_tasks, auth, endpoint, 409, int((time.monotonic() - start) * 1000))
+        raise HTTPException(
+            409,
+            "It is not the assistant's turn to open. Call POST /turns when next_speaker is user.",
+        )
+
+    debate_for_ai = {**debate, "next_speaker": "assistant"}
+    try:
+        ai_text = _generate_assistant_text(debate_for_ai, auth.tenant_id)
+    except Exception as e:
+        print(f"[api_v1] AI opening failed: {type(e).__name__}: {e}")
+        _log(background_tasks, auth, endpoint, 502, int((time.monotonic() - start) * 1000))
+        raise HTTPException(502, "AI generation temporarily unavailable. Please retry.")
+
+    ai_msg, final_round, final_next, final_status = _complete_assistant_turn(
+        tenant_id=auth.tenant_id,
+        debate=debate,
+        ai_text=ai_text,
+    )
+
+    out = OpenOut(
+        debate_id=UUID(debate["id"]),
+        assistant_message=_message_out(ai_msg),
+        current_round=final_round,
+        next_speaker=final_next,
+        status=final_status,
+    )
+    _save_idempotency(auth, idem_key, endpoint, 200, out)
+    _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
+    return out
+
+
 @router.post("/debates/{debate_id}/turns", response_model=TurnOut)
 def submit_turn(
     debate_id: UUID,
     body: TurnIn,
     background_tasks: BackgroundTasks,
     auth: AuthContext = Depends(verify_api_key),
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ):
     start = time.monotonic()
     endpoint = "POST /api/v1/debates/{id}/turns"
+    idem_key = _normalize_idempotency_key(idempotency_key)
+
+    cached = _idempotency_cached(auth, idem_key, endpoint)
+    if cached:
+        status_code, body_dict = cached
+        _log(background_tasks, auth, endpoint, status_code, int((time.monotonic() - start) * 1000))
+        return TurnOut(**body_dict)
 
     debate = debates_store.get_debate(tenant_id=auth.tenant_id, debate_id=debate_id)
     if not debate:
@@ -273,12 +441,15 @@ def submit_turn(
         raise HTTPException(400, f"Debate is {debate['status']}")
     if debate["next_speaker"] != "user":
         _log(background_tasks, auth, endpoint, 409, int((time.monotonic() - start) * 1000))
-        raise HTTPException(409, "It is the assistant's turn — the student already spoke this round")
+        hint = (
+            "Call POST /api/v1/debates/{id}/open first."
+            if debate["next_speaker"] == "assistant"
+            else "The student already spoke this round."
+        )
+        raise HTTPException(409, f"It is not the student's turn. {hint}")
 
-    # Safety screen on the partner-supplied student speech.
     assert_input_safe(body.content, where="debate turn")
 
-    # 1. Persist the human turn.
     user_msg = debates_store.append_message(
         tenant_id=auth.tenant_id,
         debate_id=debate["id"],
@@ -287,7 +458,6 @@ def submit_turn(
         content=body.content.strip(),
     )
 
-    # 2. Advance state after the human turn.
     new_round, new_next, new_status = _advance_state(
         starter=debate["starter"],
         current_round=debate["current_round"],
@@ -295,7 +465,6 @@ def submit_turn(
         just_spoke="user",
     )
 
-    # If the human was the second speaker and we're done, don't generate an AI turn.
     if new_status == "completed" or new_next == "user":
         debates_store.update_debate_state(
             tenant_id=auth.tenant_id,
@@ -304,63 +473,58 @@ def submit_turn(
             next_speaker=new_next,
             status=new_status,
         )
-        _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
-        # Partner asked for a turn; we accepted it, but there's no AI reply.
-        # Surface this by returning the user message twice — caller can compare IDs.
-        return TurnOut(
+        out = TurnOut(
             debate_id=UUID(debate["id"]),
             user_message=_message_out(user_msg),
-            assistant_message=_message_out(user_msg),
+            assistant_message=None,
             current_round=new_round,
             next_speaker=None if new_status == "completed" else new_next,
             status=new_status,
         )
+        _save_idempotency(auth, idem_key, endpoint, 200, out)
+        _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
+        return out
 
-    # 3. Generate AI reply against the freshly-extended transcript.
-    debate_for_round = {**debate, "current_round": new_round, "next_speaker": new_next}
-    all_msgs = debates_store.list_messages(tenant_id=auth.tenant_id, debate_id=debate["id"])
-
-    from app.main import generate_ai_turn_text  # lazy
-    internal_debate = _db_to_internal_debate(debate_for_round)
-    internal_msgs = _db_to_internal_messages(all_msgs)
+    debate_for_ai = {**debate, "current_round": new_round, "next_speaker": "assistant"}
     try:
-        ai_text = generate_ai_turn_text(internal_debate, internal_msgs)
+        ai_text = _generate_assistant_text(debate_for_ai, auth.tenant_id)
     except Exception as e:
+        debates_store.delete_message(
+            tenant_id=auth.tenant_id,
+            debate_id=debate["id"],
+            message_id=user_msg["id"],
+        )
         print(f"[api_v1] AI generation failed: {type(e).__name__}: {e}")
         _log(background_tasks, auth, endpoint, 502, int((time.monotonic() - start) * 1000))
         raise HTTPException(502, "AI generation temporarily unavailable. Please retry.")
 
-    # 4. Persist AI message and advance state again.
-    ai_msg = debates_store.append_message(
-        tenant_id=auth.tenant_id,
-        debate_id=debate["id"],
-        round_no=new_round,
-        speaker="assistant",
-        content=ai_text,
-    )
-    final_round, final_next, final_status = _advance_state(
-        starter=debate["starter"],
-        current_round=new_round,
-        num_rounds=debate["num_rounds"],
-        just_spoke="assistant",
-    )
-    debates_store.update_debate_state(
-        tenant_id=auth.tenant_id,
-        debate_id=debate["id"],
-        current_round=final_round,
-        next_speaker=final_next,
-        status=final_status,
-    )
+    try:
+        ai_msg, final_round, final_next, final_status = _complete_assistant_turn(
+            tenant_id=auth.tenant_id,
+            debate=debate_for_ai,
+            ai_text=ai_text,
+        )
+    except Exception as e:
+        debates_store.delete_message(
+            tenant_id=auth.tenant_id,
+            debate_id=debate["id"],
+            message_id=user_msg["id"],
+        )
+        print(f"[api_v1] Failed to persist AI turn: {type(e).__name__}: {e}")
+        _log(background_tasks, auth, endpoint, 502, int((time.monotonic() - start) * 1000))
+        raise HTTPException(502, "AI generation temporarily unavailable. Please retry.")
 
-    _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
-    return TurnOut(
+    out = TurnOut(
         debate_id=UUID(debate["id"]),
         user_message=_message_out(user_msg),
         assistant_message=_message_out(ai_msg),
         current_round=final_round,
-        next_speaker=None if final_status == "completed" else final_next,
+        next_speaker=final_next,
         status=final_status,
     )
+    _save_idempotency(auth, idem_key, endpoint, 200, out)
+    _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
+    return out
 
 
 @router.post("/debates/{debate_id}/finish", response_model=ScoreOut)
@@ -376,6 +540,11 @@ def finish_debate(
     if not debate:
         _log(background_tasks, auth, endpoint, 404, int((time.monotonic() - start) * 1000))
         raise HTTPException(404, "Debate not found")
+
+    existing_score = debates_store.get_score(tenant_id=auth.tenant_id, debate_id=debate["id"])
+    if existing_score:
+        _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
+        return _score_out(existing_score)
 
     msgs = debates_store.list_messages(tenant_id=auth.tenant_id, debate_id=debate["id"])
     if not msgs:

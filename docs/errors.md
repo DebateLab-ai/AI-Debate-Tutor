@@ -34,9 +34,13 @@ Don't parse the `detail` string for logic — it is meant for humans. Branch on 
 
 You called `/turns` on a finished debate. Check `status` from the previous response before submitting another turn.
 
-### "It is the assistant's turn"
+### "Call POST /api/v1/debates/{id}/open first"
 
-The previous `/turns` call already advanced past the student's slot. Re-read the debate state with `GET /api/v1/debates/{id}` to recover.
+You created the debate with `"starter": "assistant"` but haven't fetched the AI opening yet. Call `/open` once, then `/turns`.
+
+### "It is not the student's turn"
+
+Either the previous `/turns` call already advanced past the student's slot, or you need `/open` first. Re-read the debate state with `GET /api/v1/debates/{id}` to recover.
 
 ### "Debate must be scored before a report can be generated"
 

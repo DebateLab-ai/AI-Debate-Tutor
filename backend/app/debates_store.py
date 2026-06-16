@@ -194,6 +194,25 @@ def list_messages(*, tenant_id: str, debate_id: UUID | str) -> list[dict[str, An
     return res.data or []
 
 
+def delete_message(
+    *,
+    tenant_id: str,
+    debate_id: UUID | str,
+    message_id: UUID | str,
+) -> bool:
+    """Remove a message scoped to tenant + debate. Used to roll back partial turns."""
+    res = (
+        get_client()
+        .table("messages")
+        .delete()
+        .eq("id", str(message_id))
+        .eq("tenant_id", tenant_id)
+        .eq("debate_id", str(debate_id))
+        .execute()
+    )
+    return bool(res.data)
+
+
 # ---------- Scores ----------
 
 def upsert_score(
@@ -238,3 +257,39 @@ def get_score(*, tenant_id: str, debate_id: UUID | str) -> Optional[dict[str, An
         .execute()
     )
     return res.data if res else None
+
+
+# ---------- Idempotency (partner POST retries) ----------
+
+def get_idempotency_record(
+    *,
+    tenant_id: str,
+    idempotency_key: str,
+) -> Optional[dict[str, Any]]:
+    res = (
+        get_client()
+        .table("idempotency_records")
+        .select("*")
+        .eq("tenant_id", tenant_id)
+        .eq("idempotency_key", idempotency_key)
+        .maybe_single()
+        .execute()
+    )
+    return res.data if res else None
+
+
+def save_idempotency_record(
+    *,
+    tenant_id: str,
+    idempotency_key: str,
+    endpoint: str,
+    response_status: int,
+    response_body: dict[str, Any],
+) -> None:
+    get_client().table("idempotency_records").insert({
+        "tenant_id": tenant_id,
+        "idempotency_key": idempotency_key,
+        "endpoint": endpoint,
+        "response_status": response_status,
+        "response_body": response_body,
+    }).execute()

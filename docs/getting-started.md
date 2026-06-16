@@ -62,9 +62,12 @@ You'll get back the new debate's state. Note the `id` — you'll use it for ever
 A debate is four steps:
 
 1. **Create** the debate with a motion and configuration.
-2. **Submit turns** until the debate is complete. Each turn = your student's speech in; AI counter-speech out.
-3. **Finish** the debate to score it.
-4. **Download the PDF report** for the student or instructor.
+2. **Open** (only if `starter` is `"assistant"`) — one AI opening speech via `POST /api/v1/debates/{id}/open`.
+3. **Submit turns** until the debate is complete. Each turn = your student's speech in; AI counter-speech out.
+4. **Finish** the debate to score it.
+5. **Download the PDF report** for the student or instructor.
+
+Pass an `Idempotency-Key` header on `/open` and `/turns` so retries after timeouts return the same successful response without double-charging the model.
 
 ### 1. Create
 

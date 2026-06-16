@@ -1,8 +1,8 @@
 """Phase 2 smoke test: full lifecycle through the public /api/v1/* endpoints.
 
-Run from backend/:
-    source venv/bin/activate
-    python scripts/smoke_api_v1_lifecycle.py            # auth + create + list + tenant scoping (no AI calls)
+Run from backend/ (requires backend/.env with SUPABASE_URL and SUPABASE_SERVICE_KEY):
+    pip install -r requirements.txt
+    python3 scripts/smoke_api_v1_lifecycle.py            # auth + create + list + tenant scoping (no AI calls)
     python scripts/smoke_api_v1_lifecycle.py --with-ai  # also exercises turns + scoring (calls OpenAI, costs ~$0.01)
 
 Uses FastAPI TestClient so no uvicorn needed. Creates a disposable tenant and
@@ -157,6 +157,26 @@ def main() -> None:
                 fail(f"SECURITY: tenant B turn on tenant A's debate → {r.status_code}")
             ok("tenant B turn on tenant A's debate → 404")
 
+            # 8b. AI-first debates require /open before /turns.
+            r = client.post(
+                "/api/v1/debates",
+                json={**create_payload, "starter": "assistant"},
+                headers=headers_a,
+            )
+            if r.status_code != 201:
+                fail(f"assistant-starter create failed: {r.status_code} {r.text}")
+            ai_first_id = r.json()["id"]
+            r = client.post(
+                f"/api/v1/debates/{ai_first_id}/turns",
+                json={"content": "too early"},
+                headers=headers_a,
+            )
+            if r.status_code != 409:
+                fail(f"expected 409 on /turns before /open, got {r.status_code}: {r.text}")
+            if "open" not in r.json().get("detail", "").lower():
+                fail(f"409 detail should mention /open: {r.text}")
+            ok("assistant-starter /turns before /open → 409 with /open hint")
+
             if not args.with_ai:
                 print(f"\n{GREEN}Auth + CRUD + scoping checks passed.{RESET} Re-run with --with-ai to exercise the AI pipeline.")
                 return
@@ -187,6 +207,39 @@ def main() -> None:
                 fail(f"overall score out of range: {score}")
             ok(f"score received (overall={score['overall']}, weakness={score['weakness_type']})")
 
+            # 9b. /finish is idempotent — second call returns cached score without re-scoring.
+            r2 = client.post(f"/api/v1/debates/{debate_id}/finish", headers=headers_a)
+            if r2.status_code != 200:
+                fail(f"second finish failed: {r2.status_code} {r2.text}")
+            if r2.json()["overall"] != score["overall"]:
+                fail("second /finish returned a different score (should be cached)")
+            ok("/finish idempotent (cached score on repeat)")
+
+            # 9c. Idempotency-Key on /turns dedupes retries.
+            r = client.post(
+                "/api/v1/debates",
+                json={**create_payload, "starter": "user", "num_rounds": 1},
+                headers=headers_a,
+            )
+            idem_debate_id = r.json()["id"]
+            idem_headers = {**headers_a, "Idempotency-Key": "smoke-turn-key-1"}
+            turn_body = {"content": "A short practice argument about plastic pollution and ocean health."}
+            r1 = client.post(
+                f"/api/v1/debates/{idem_debate_id}/turns",
+                json=turn_body,
+                headers=idem_headers,
+            )
+            r_dup = client.post(
+                f"/api/v1/debates/{idem_debate_id}/turns",
+                json=turn_body,
+                headers=idem_headers,
+            )
+            if r1.status_code != 200 or r_dup.status_code != 200:
+                fail(f"idempotent turn failed: {r1.status_code} / {r_dup.status_code}")
+            if r1.json()["user_message"]["id"] != r_dup.json()["user_message"]["id"]:
+                fail("Idempotency-Key did not return the same user_message id")
+            ok("Idempotency-Key on /turns returns cached response")
+
             # 10. GET after finish includes the score.
             r = client.get(f"/api/v1/debates/{debate_id}", headers=headers_a).json()
             if r["score"] is None:
@@ -210,6 +263,18 @@ def main() -> None:
             if r.status_code != 404:
                 fail(f"SECURITY: tenant B got status {r.status_code} on tenant A's PDF")
             ok("tenant B fetching tenant A's PDF → 404")
+
+            # 13. Assistant-starter full open flow.
+            print("[AI] Opening assistant-first debate...")
+            r = client.post(f"/api/v1/debates/{ai_first_id}/open", headers=headers_a)
+            if r.status_code != 200:
+                fail(f"/open failed: {r.status_code} {r.text}")
+            opened = r.json()
+            if not opened["assistant_message"]["content"]:
+                fail("AI opening returned empty content")
+            if opened["next_speaker"] != "user":
+                fail(f"after /open expected next_speaker=user, got {opened}")
+            ok(f"assistant-first /open OK ({len(opened['assistant_message']['content'])} chars)")
 
             print(f"\n{GREEN}Full lifecycle passed.{RESET} Phase 2 endpoints are sound.")
 

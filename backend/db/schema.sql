@@ -110,6 +110,21 @@ create table if not exists scores (
 
 create index if not exists idx_scores_tenant_id on scores(tenant_id);
 
+-- idempotency_records: cached 2xx responses for POST /open and POST /turns.
+-- Partners send Idempotency-Key to safely retry after timeouts. Only successful
+-- responses are stored; failures roll back partial writes and are not cached.
+create table if not exists idempotency_records (
+    tenant_id        uuid        not null references tenants(id) on delete cascade,
+    idempotency_key  text        not null,
+    endpoint         text        not null,
+    response_status  integer     not null,
+    response_body    jsonb       not null,
+    created_at       timestamptz not null default now(),
+    primary key (tenant_id, idempotency_key)
+);
+
+create index if not exists idx_idempotency_created_at on idempotency_records(created_at);
+
 -- Lock the tables down: service role (used by the backend) bypasses RLS, so
 -- enabling RLS with no policies blocks all access via the public/anon key.
 alter table tenants   enable row level security;
@@ -117,4 +132,5 @@ alter table api_keys  enable row level security;
 alter table api_usage enable row level security;
 alter table debates   enable row level security;
 alter table messages  enable row level security;
-alter table scores    enable row level security;
+alter table scores              enable row level security;
+alter table idempotency_records enable row level security;

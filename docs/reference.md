@@ -5,6 +5,7 @@ All endpoints share the prefix `/api/v1/`. All require the `X-API-Key` header. A
 | Method | Path | Purpose |
 |---|---|---|
 | `POST` | `/api/v1/debates` | Create a new debate |
+| `POST` | `/api/v1/debates/{id}/open` | Generate the AI opening (when `starter` is `"assistant"`) |
 | `POST` | `/api/v1/debates/{id}/turns` | Submit a student turn; get an AI reply |
 | `POST` | `/api/v1/debates/{id}/finish` | Score the completed debate |
 | `GET` | `/api/v1/debates/{id}` | Fetch a debate's full state |
@@ -59,6 +60,45 @@ Common errors:
 
 ---
 
+## Open a debate (AI speaks first)
+
+```
+POST /api/v1/debates/{debate_id}/open
+```
+
+Required when you created the debate with `"starter": "assistant"`. Generates the AI opening speech. Skip this endpoint when `"starter": "user"` — go straight to `/turns`.
+
+Optional header: `Idempotency-Key` (recommended). Re-sending the same key returns the cached `200` response without re-running the model.
+
+AI generation takes 5–15 seconds; use a 60-second client timeout.
+
+Returns `200 OK`:
+
+```json
+{
+  "debate_id": "8c2f...",
+  "assistant_message": {
+    "id": "...",
+    "round_no": 1,
+    "speaker": "assistant",
+    "content": "The proposition stands for...",
+    "created_at": "2026-06-07T12:00:08Z"
+  },
+  "current_round": 1,
+  "next_speaker": "user",
+  "status": "active"
+}
+```
+
+Common errors:
+
+- `400` — debate is already `"completed"`
+- `404` — debate not found (or belongs to another tenant)
+- `409` — it is not the assistant's turn (already opened, or wrong `starter`)
+- `502` — AI generation failed; safe to retry (no partial state is left behind)
+
+---
+
 ## Submit a turn
 
 ```
@@ -66,6 +106,8 @@ POST /api/v1/debates/{debate_id}/turns
 ```
 
 Submits one student speech and generates the AI counter-speech. AI generation takes 5–15 seconds; use a 60-second client timeout.
+
+Optional header: `Idempotency-Key` (recommended). Re-sending the same key after a successful turn returns the cached response.
 
 Request body:
 
@@ -98,14 +140,16 @@ Returns `200 OK`:
 }
 ```
 
+When the student's final turn ends the debate without an AI reply, `assistant_message` is `null`.
+
 When the debate completes, `status` becomes `"completed"` and `next_speaker` is `null`.
 
 Common errors:
 
 - `400` — debate is already `"completed"`
 - `404` — debate not found (or belongs to another tenant)
-- `409` — it is not currently `"user"`'s turn
-- `502` — AI generation failed; safe to retry
+- `409` — it is not the student's turn (call `/open` first if `next_speaker` is `"assistant"`)
+- `502` — AI generation failed; safe to retry with the same body (partial writes are rolled back). Use `Idempotency-Key` after a successful turn to dedupe retries.
 
 ---
 

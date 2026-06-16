@@ -22,6 +22,8 @@ A debate consists of:
 
 One **exchange** = one back-and-forth between the student and the AI.
 
+If `"starter"` is `"assistant"`, call `POST /api/v1/debates/{id}/open` once before the first `/turns`. If `"starter"` is `"user"`, skip `/open` and submit `/turns` immediately.
+
 ## Modes
 
 - **Casual** — conversational practice. Lighter AI responses, faster, optimized for learning rather than competition. Use this as the default for most students.
