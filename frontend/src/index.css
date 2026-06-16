@@ -863,76 +863,64 @@ select.input-large option {
 .cta-button {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
-  padding: 20px 48px;
-  font-size: 18px;
-  font-weight: 700;
-  background: linear-gradient(135deg, #4a90e2 0%, #5ba0f2 50%, #7650a2 100%);
-  background-size: 200% 200%;
+  gap: 10px;
+  padding: 14px 32px;
+  font-size: 15px;
+  font-weight: 600;
+  background: var(--accent);
   color: white;
-  border: none;
-  border-radius: 14px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
   cursor: pointer;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow:
-    0 10px 30px rgba(74, 144, 226, 0.4),
-    0 0 0 0 rgba(74, 144, 226, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  position: relative;
-  overflow: hidden;
-  animation: buttonPulse 3s ease-in-out infinite;
+  transition: background 0.2s ease, border-color 0.2s ease;
   text-decoration: none;
   font-family: inherit;
 }
 
-.cta-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  animation: none;
+/* Motion-only layer: pulse, shimmer, border glow. Size comes from .cta-button / .btn-primary. */
+.btn-effects {
+  position: relative;
+  overflow: hidden;
+  transition:
+    transform 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+    background 0.2s ease,
+    border-color 0.2s ease;
+  animation: buttonPulse 3s ease-in-out infinite;
 }
 
-.cta-button-block {
-  width: 100%;
-  justify-content: center;
-  margin-top: 8px;
+.btn-effects:disabled {
+  animation: none;
 }
 
 .cta-button-secondary {
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.18);
   color: rgba(232, 234, 237, 0.9);
-  animation: none;
-  box-shadow: none;
-}
-
-.cta-button-secondary::before,
-.cta-button-secondary::after {
-  display: none;
 }
 
 .cta-button-secondary:hover {
   background: rgba(255, 255, 255, 0.05);
   border-color: rgba(255, 255, 255, 0.3);
   transform: translateY(-2px);
-  box-shadow: none;
 }
 
 @keyframes buttonPulse {
   0%, 100% {
     box-shadow:
-      0 10px 30px rgba(74, 144, 226, 0.4),
-      0 0 0 0 rgba(74, 144, 226, 0.5),
-      inset 0 1px 0 rgba(255, 255, 255, 0.2);
+      0 6px 20px rgba(74, 144, 226, 0.35),
+      0 0 0 0 rgba(74, 144, 226, 0.4),
+      inset 0 1px 0 rgba(255, 255, 255, 0.15);
   }
   50% {
     box-shadow:
-      0 10px 40px rgba(74, 144, 226, 0.6),
-      0 0 0 8px rgba(74, 144, 226, 0.2),
-      inset 0 1px 0 rgba(255, 255, 255, 0.2);
+      0 8px 28px rgba(74, 144, 226, 0.5),
+      0 0 0 6px rgba(74, 144, 226, 0.15),
+      inset 0 1px 0 rgba(255, 255, 255, 0.15);
   }
 }
 
-.cta-button::before {
+.btn-effects::before {
   content: '';
   position: absolute;
   top: 0;
@@ -941,13 +929,14 @@ select.input-large option {
   height: 100%;
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
   transition: left 0.6s;
+  pointer-events: none;
 }
 
-.cta-button::after {
+.btn-effects::after {
   content: '';
   position: absolute;
   inset: -2px;
-  border-radius: 14px;
+  border-radius: inherit;
   padding: 2px;
   background: linear-gradient(135deg, #4a90e2, #5ba0f2, #7650a2, #4a90e2);
   background-size: 300% 300%;
@@ -957,6 +946,7 @@ select.input-large option {
   opacity: 0;
   transition: opacity 0.4s;
   animation: borderRotate 3s linear infinite;
+  pointer-events: none;
 }
 
 @keyframes borderRotate {
@@ -968,25 +958,33 @@ select.input-large option {
   }
 }
 
-.cta-button:hover:not(:disabled)::before {
+.btn-effects:hover:not(:disabled)::before {
   left: 100%;
 }
 
-.cta-button:hover:not(:disabled) {
-  transform: translateY(-4px) scale(1.02);
+.btn-effects:hover:not(:disabled) {
+  transform: translateY(-3px) scale(1.01);
   box-shadow:
-    0 16px 48px rgba(74, 144, 226, 0.5),
-    0 0 0 6px rgba(74, 144, 226, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3);
-  background-position: 100% 50%;
+    0 12px 36px rgba(74, 144, 226, 0.45),
+    0 0 0 4px rgba(74, 144, 226, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
-.cta-button:hover:not(:disabled)::after {
+.cta-button.btn-effects:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.btn-primary.btn-effects:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn-effects:hover:not(:disabled)::after {
   opacity: 1;
 }
 
-.cta-button:active:not(:disabled) {
-  transform: translateY(-2px) scale(1);
+.btn-effects:active:not(:disabled) {
+  transform: translateY(-1px) scale(1);
 }
 
 .cta-arrow {
@@ -995,7 +993,8 @@ select.input-large option {
   display: inline-block;
 }
 
-.cta-button:hover .cta-arrow {
+.cta-button:hover .cta-arrow,
+.btn-effects:hover .cta-arrow {
   transform: translateX(6px);
 }
 

@@ -37,7 +37,7 @@ function LandingPage() {
             <nav className="landing-actions" aria-label="Main navigation">
               <Link 
                 to="/new-debate"
-                className="cta-button"
+                className="cta-button btn-effects"
               >
                 Start Debate
                 <span className="cta-arrow" aria-hidden="true">→</span>
