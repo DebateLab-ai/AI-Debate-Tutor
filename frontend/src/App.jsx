@@ -1161,7 +1161,7 @@ function App() {
             </div>
 
             <button
-              className="btn-primary btn-large"
+              className="cta-button cta-button-block"
               onClick={startDebate}
               disabled={loading || !topic.trim() || (topicMode === 'category' && !selectedCategory)}
             >
