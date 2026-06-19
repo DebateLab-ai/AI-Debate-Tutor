@@ -1,6 +1,7 @@
 .env
 frontend/.env
 frontend/.env.local
+.DS_Store
 venv/
 .venv/
 
