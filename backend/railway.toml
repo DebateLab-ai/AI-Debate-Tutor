@@ -1,7 +1,0 @@
-# Railway service config (set service root directory to backend/ in the dashboard).
-[build]
-builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
-
-[deploy]
-restartPolicyType = "ON_FAILURE"
