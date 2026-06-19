@@ -1919,7 +1919,116 @@ select.input-large option {
   transform: translateY(-1px);
 }
 
+/* Partner API mockup (internal testing) */
+.partner-mockup-card {
+  max-width: 720px;
+}
+
+.partner-mockup-section {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+
+.partner-mockup-section h2 {
+  font-size: 18px;
+  margin: 0 0 16px;
+}
+
+.partner-mockup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.partner-mockup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.partner-mockup-status {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.partner-mockup-textarea {
+  min-height: 120px;
+  resize: vertical;
+  margin-bottom: 12px;
+}
+
+.partner-mockup-messages {
+  margin-top: 20px;
+}
+
+.partner-mockup-msg {
+  padding: 12px 14px;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+}
+
+.partner-mockup-msg-user {
+  background: rgba(90, 157, 232, 0.08);
+}
+
+.partner-mockup-msg-assistant {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.partner-mockup-msg-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.partner-mockup-score {
+  margin-top: 20px;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(90, 157, 232, 0.06);
+}
+
+.partner-mockup-log {
+  max-height: 360px;
+  overflow: auto;
+  font-size: 12px;
+}
+
+.partner-mockup-log details {
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.partner-mockup-log pre {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.partner-log-error summary {
+  color: #f87171;
+}
+
+.partner-mockup-log-empty {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
 @media (max-width: 768px) {
+  .partner-mockup-grid {
+    grid-template-columns: 1fr;
+  }
+
   .mailing-list-card {
     padding: 32px 24px;
   }

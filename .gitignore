@@ -1,4 +1,8 @@
 .env
+frontend/.env
+frontend/.env.local
+venv/
+.venv/
 
 # Python bytecode caches
 __pycache__/

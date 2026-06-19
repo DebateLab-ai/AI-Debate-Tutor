@@ -253,10 +253,15 @@ def _idempotency_cached(
 ) -> Optional[tuple[int, dict[str, Any]]]:
     if not key:
         return None
-    rec = debates_store.get_idempotency_record(
-        tenant_id=auth.tenant_id,
-        idempotency_key=key,
-    )
+    try:
+        rec = debates_store.get_idempotency_record(
+            tenant_id=auth.tenant_id,
+            idempotency_key=key,
+        )
+    except Exception as e:
+        # Table may not exist yet if schema.sql wasn't fully applied — skip caching.
+        print(f"[api_v1] idempotency lookup skipped: {type(e).__name__}: {e}")
+        return None
     if not rec:
         return None
     if rec["endpoint"] != endpoint:
@@ -276,13 +281,16 @@ def _save_idempotency(
 ) -> None:
     if not key:
         return
-    debates_store.save_idempotency_record(
-        tenant_id=auth.tenant_id,
-        idempotency_key=key,
-        endpoint=endpoint,
-        response_status=status_code,
-        response_body=body.dict(),
-    )
+    try:
+        debates_store.save_idempotency_record(
+            tenant_id=auth.tenant_id,
+            idempotency_key=key,
+            endpoint=endpoint,
+            response_status=status_code,
+            response_body=body.dict(),
+        )
+    except Exception as e:
+        print(f"[api_v1] idempotency save skipped: {type(e).__name__}: {e}")
 
 
 def _generate_assistant_text(debate: dict[str, Any], tenant_id: str) -> str:
@@ -639,8 +647,8 @@ def get_debate_report(
     from app.pdf import render_pdf  # lazy: missing system deps shouldn't kill the whole API on boot
     try:
         pdf_bytes = render_pdf(debate=debate, messages=messages, score=score)
-    except RuntimeError as e:
-        print(f"[api_v1] PDF render failed: {e}")
+    except Exception as e:
+        print(f"[api_v1] PDF render failed: {type(e).__name__}: {e}")
         _log(background_tasks, auth, endpoint, 503, int((time.monotonic() - start) * 1000))
         raise HTTPException(503, "PDF generation is temporarily unavailable.")
 

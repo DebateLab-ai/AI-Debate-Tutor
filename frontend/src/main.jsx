@@ -9,6 +9,7 @@ import DrillPage from './DrillPage'
 import DrillsPage from './DrillsPage'
 import MailingListPage from './MailingListPage'
 import TrackingPage from './TrackingPage'
+import PartnerMockupPage from './PartnerMockupPage'
 import ErrorBoundary from './ErrorBoundary'
 import './index.css'
 
@@ -28,6 +29,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             <Route path="/debate-drills" element={<DrillsPage />} />
             <Route path="/debate-drill-rebuttal" element={<DrillPage />} />
             <Route path="/mailing-list" element={<MailingListPage />} />
+            <Route path="/partner-mockup" element={<PartnerMockupPage />} />
             {/* Tracking routes for analytics (no custom events needed) */}
             <Route path="/track/user-turn" element={<TrackingPage />} />
             <Route path="/track/drill-rebuttal-submit" element={<TrackingPage />} />

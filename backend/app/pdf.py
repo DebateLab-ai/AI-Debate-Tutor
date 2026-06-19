@@ -85,7 +85,7 @@ def render_pdf(
     try:
         from weasyprint import HTML
         from jinja2 import Environment, FileSystemLoader, select_autoescape
-    except ImportError as e:
+    except (ImportError, OSError) as e:
         raise RuntimeError(f"PDF dependencies unavailable: {e}") from e
 
     templates_dir = Path(__file__).resolve().parent / "templates"
@@ -117,5 +117,8 @@ def render_pdf(
         generated_at=datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
     )
 
-    pdf_bytes = HTML(string=rendered_html).write_pdf()
+    try:
+        pdf_bytes = HTML(string=rendered_html).write_pdf()
+    except Exception as e:
+        raise RuntimeError(f"PDF render failed: {e}") from e
     return pdf_bytes
