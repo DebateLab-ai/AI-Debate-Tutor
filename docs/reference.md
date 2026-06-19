@@ -268,6 +268,80 @@ GET /api/v1/debates?external_user_id=student-123&since=2026-06-01T00:00:00Z
 
 ---
 
+## Rebuttal drill
+
+Stateless practice loop (same logic as the website's `/debate-drill-rebuttal`). No Supabase storage — your server keeps `claim` / `next_claim` between calls.
+
+Typical flow after a debate: read `weakness_type` from `/finish`, pass it to `/start`, then loop `/submit`.
+
+### Start drill
+
+```
+POST /api/v1/drills/rebuttal/start
+```
+
+```json
+{
+  "motion": "THW ban single-use plastics globally",
+  "user_position": "for",
+  "weakness_type": "rebuttal",
+  "external_user_id": "student-123"
+}
+```
+
+Returns `200 OK`:
+
+```json
+{
+  "claim": "Single-use plastics are essential for medical sterility...",
+  "claim_position": "against",
+  "weakness_type": "rebuttal"
+}
+```
+
+`claim_position` is always opposite `user_position`.
+
+### Submit rebuttal
+
+```
+POST /api/v1/drills/rebuttal/submit
+```
+
+```json
+{
+  "motion": "THW ban single-use plastics globally",
+  "claim": "...",
+  "claim_position": "against",
+  "rebuttal": "The proposition overstates medical dependence...",
+  "weakness_type": "rebuttal"
+}
+```
+
+Returns `200 OK`:
+
+```json
+{
+  "overall_score": 6.5,
+  "metrics": {
+    "refutation_quality": 7.0,
+    "evidence_examples": 6.0,
+    "impact_comparison": 6.5
+  },
+  "feedback": "...",
+  "next_claim": "...",
+  "next_claim_position": "against",
+  "weakness_type": "rebuttal"
+}
+```
+
+Use `next_claim` / `next_claim_position` for the next practice round.
+
+Common errors:
+
+- `502` — claim generation or scoring failed; safe to retry
+
+---
+
 ## Download PDF report
 
 ```

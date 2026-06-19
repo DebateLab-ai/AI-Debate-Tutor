@@ -143,3 +143,19 @@ export async function downloadPartnerReport(baseUrl, apiKey, debateId) {
   )
   return body
 }
+
+export async function startPartnerRebuttalDrill(baseUrl, apiKey, payload) {
+  const { body } = await partnerFetch(baseUrl, apiKey, '/api/v1/drills/rebuttal/start', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  return body
+}
+
+export async function submitPartnerRebuttalDrill(baseUrl, apiKey, payload) {
+  const { body } = await partnerFetch(baseUrl, apiKey, '/api/v1/drills/rebuttal/submit', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  }, 90_000)
+  return body
+}

@@ -114,6 +114,53 @@ class DebateWithMessagesOut(DebateOut):
     score: Optional[ScoreOut]
 
 
+WeaknessType = Literal["rebuttal", "structure", "weighing", "evidence", "strategy"]
+UserPosition = Literal["for", "against"]
+ClaimPosition = Literal["for", "against"]
+
+
+class RebuttalDrillStartIn(BaseModel):
+    motion: str = Field(min_length=1, max_length=500)
+    user_position: UserPosition = Field(
+        description="The side the student took in the related debate (claim will be on the opposite side)",
+    )
+    weakness_type: Optional[WeaknessType] = Field(
+        default="rebuttal",
+        description="Drill focus; use the debate score's weakness_type when chaining after /finish",
+    )
+    external_user_id: Optional[str] = Field(default=None, max_length=128)
+
+
+class RebuttalDrillClaimOut(BaseModel):
+    claim: str
+    claim_position: ClaimPosition
+    weakness_type: Optional[WeaknessType] = None
+
+
+class RebuttalDrillSubmitIn(BaseModel):
+    motion: str = Field(min_length=1, max_length=500)
+    claim: str = Field(min_length=1, max_length=2000)
+    claim_position: ClaimPosition
+    rebuttal: str = Field(min_length=1, max_length=10000)
+    weakness_type: Optional[WeaknessType] = None
+    external_user_id: Optional[str] = Field(default=None, max_length=128)
+
+
+class RebuttalDrillMetricsOut(BaseModel):
+    refutation_quality: float
+    evidence_examples: float
+    impact_comparison: float
+
+
+class RebuttalDrillScoreOut(BaseModel):
+    overall_score: float
+    metrics: RebuttalDrillMetricsOut
+    feedback: str
+    next_claim: str
+    next_claim_position: ClaimPosition
+    weakness_type: Optional[WeaknessType] = None
+
+
 # ---------- Adapters: DB dicts → internal Pydantic objects ----------
 # The AI generation and scoring functions in app.main were written against the
 # in-memory Debate/Message Pydantic classes (where motion is stored in `title`).
@@ -680,3 +727,87 @@ def list_debates(
     )
     _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
     return [_debate_out(r) for r in rows]
+
+
+@router.post("/drills/rebuttal/start", response_model=RebuttalDrillClaimOut)
+def start_rebuttal_drill(
+    body: RebuttalDrillStartIn,
+    background_tasks: BackgroundTasks,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    """Generate a claim for the student to rebut (stateless — store claim client-side).
+
+    Mirrors the website's POST /v1/drills/rebuttal/start. Typical flow after a debate:
+    read weakness_type from /finish, pass it here, then loop /submit using next_claim.
+    """
+    start = time.monotonic()
+    endpoint = "POST /api/v1/drills/rebuttal/start"
+
+    assert_input_safe(body.motion, where="drill motion")
+
+    from app.main import generate_drill_claim  # lazy
+
+    claim_position: ClaimPosition = "against" if body.user_position == "for" else "for"
+    try:
+        claim = generate_drill_claim(body.motion, claim_position, body.weakness_type)
+    except Exception as e:
+        print(f"[api_v1] drill claim generation failed: {type(e).__name__}: {e}")
+        _log(background_tasks, auth, endpoint, 502, int((time.monotonic() - start) * 1000))
+        raise HTTPException(502, "Drill claim generation temporarily unavailable. Please retry.")
+
+    out = RebuttalDrillClaimOut(
+        claim=claim,
+        claim_position=claim_position,
+        weakness_type=body.weakness_type,
+    )
+    _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
+    return out
+
+
+@router.post("/drills/rebuttal/submit", response_model=RebuttalDrillScoreOut)
+def submit_rebuttal_drill(
+    body: RebuttalDrillSubmitIn,
+    background_tasks: BackgroundTasks,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    """Score a drill rebuttal and return the next claim (stateless).
+
+    Pass the claim fields from /start (or the previous submit's next_claim) on each call.
+    """
+    start = time.monotonic()
+    endpoint = "POST /api/v1/drills/rebuttal/submit"
+
+    assert_input_safe(body.rebuttal, where="drill rebuttal")
+
+    from app.main import generate_drill_claim, score_drill_rebuttal  # lazy
+
+    try:
+        score_result = score_drill_rebuttal(
+            body.motion,
+            body.claim,
+            body.claim_position,
+            body.rebuttal,
+            body.weakness_type,
+        )
+        next_claim = generate_drill_claim(body.motion, body.claim_position, body.weakness_type)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[api_v1] drill scoring failed: {type(e).__name__}: {e}")
+        _log(background_tasks, auth, endpoint, 502, int((time.monotonic() - start) * 1000))
+        raise HTTPException(502, "Drill scoring temporarily unavailable. Please retry.")
+
+    out = RebuttalDrillScoreOut(
+        overall_score=score_result["overall_score"],
+        metrics=RebuttalDrillMetricsOut(
+            refutation_quality=score_result["refutation_quality"],
+            evidence_examples=score_result["evidence_examples"],
+            impact_comparison=score_result["impact_comparison"],
+        ),
+        feedback=score_result["feedback"],
+        next_claim=next_claim,
+        next_claim_position=body.claim_position,
+        weakness_type=body.weakness_type,
+    )
+    _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
+    return out

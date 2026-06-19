@@ -276,6 +276,49 @@ def main() -> None:
                 fail(f"after /open expected next_speaker=user, got {opened}")
             ok(f"assistant-first /open OK ({len(opened['assistant_message']['content'])} chars)")
 
+            # 14. Rebuttal drill start + submit (stateless).
+            print("[AI] Rebuttal drill...")
+            r = client.post(
+                "/api/v1/drills/rebuttal/start",
+                headers=headers_a,
+                json={
+                    "motion": "THW test motion for drills",
+                    "user_position": "for",
+                    "weakness_type": "rebuttal",
+                },
+            )
+            if r.status_code != 200:
+                fail(f"drill /start failed: {r.status_code} {r.text}")
+            drill = r.json()
+            if not drill.get("claim"):
+                fail("drill /start returned empty claim")
+            ok(f"drill /start OK ({len(drill['claim'])} char claim)")
+
+            r = client.post(
+                "/api/v1/drills/rebuttal/submit",
+                headers=headers_a,
+                json={
+                    "motion": "THW test motion for drills",
+                    "claim": drill["claim"],
+                    "claim_position": drill["claim_position"],
+                    "rebuttal": (
+                        "The claim assumes medical plastics cannot be replaced, but many "
+                        "hospitals already use reusable sterilizable alternatives without "
+                        "compromising safety — the burden is on them to prove a global ban "
+                        "would collapse healthcare rather than accelerate innovation."
+                    ),
+                    "weakness_type": "rebuttal",
+                },
+            )
+            if r.status_code != 200:
+                fail(f"drill /submit failed: {r.status_code} {r.text}")
+            scored = r.json()
+            if scored.get("overall_score") is None:
+                fail("drill /submit missing overall_score")
+            if not scored.get("next_claim"):
+                fail("drill /submit missing next_claim")
+            ok(f"drill /submit OK (score={scored['overall_score']})")
+
             print(f"\n{GREEN}Full lifecycle passed.{RESET} Phase 2 endpoints are sound.")
 
     finally:

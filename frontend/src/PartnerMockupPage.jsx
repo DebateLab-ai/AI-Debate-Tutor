@@ -10,6 +10,8 @@ import {
   listPartnerDebates,
   openPartnerDebate,
   pingPartner,
+  startPartnerRebuttalDrill,
+  submitPartnerRebuttalDrill,
   submitPartnerTurn,
 } from './partnerApi'
 
@@ -31,6 +33,10 @@ function PartnerMockupPage() {
   const [debate, setDebate] = useState(null)
   const [messages, setMessages] = useState([])
   const [score, setScore] = useState(null)
+  const [drillClaim, setDrillClaim] = useState(null)
+  const [drillClaimPosition, setDrillClaimPosition] = useState('for')
+  const [drillRebuttal, setDrillRebuttal] = useState('')
+  const [drillScore, setDrillScore] = useState(null)
   const [busy, setBusy] = useState(false)
   const [log, setLog] = useState([])
 
@@ -168,6 +174,41 @@ function PartnerMockupPage() {
       a.click()
       URL.revokeObjectURL(url)
       return { bytes: blob.size, type: blob.type }
+    })
+  }
+
+  const drillWeakness = score?.weakness_type || 'rebuttal'
+
+  const handleDrillStart = () =>
+    run('POST /api/v1/drills/rebuttal/start', async () => {
+      const result = await startPartnerRebuttalDrill(baseUrl, apiKey, {
+        motion,
+        user_position: 'for',
+        weakness_type: drillWeakness,
+        external_user_id: externalUserId || undefined,
+      })
+      setDrillClaim(result.claim)
+      setDrillClaimPosition(result.claim_position)
+      setDrillScore(null)
+      return result
+    })
+
+  const handleDrillSubmit = () => {
+    if (!drillClaim) return
+    return run('POST /api/v1/drills/rebuttal/submit', async () => {
+      const result = await submitPartnerRebuttalDrill(baseUrl, apiKey, {
+        motion,
+        claim: drillClaim,
+        claim_position: drillClaimPosition,
+        rebuttal: drillRebuttal,
+        weakness_type: drillWeakness,
+        external_user_id: externalUserId || undefined,
+      })
+      setDrillScore(result)
+      setDrillClaim(result.next_claim)
+      setDrillClaimPosition(result.next_claim_position)
+      setDrillRebuttal('')
+      return result
     })
   }
 
@@ -391,6 +432,54 @@ function PartnerMockupPage() {
                 )}
               </section>
             )}
+
+            <section className="partner-mockup-section">
+              <h2>Rebuttal drill</h2>
+              <p className="setup-subtitle">
+                Stateless practice loop — same as <code>/debate-drill-rebuttal</code>. Uses debate{' '}
+                <code>weakness_type</code> when scored ({drillWeakness}).
+              </p>
+              <button type="button" className="btn-secondary" onClick={handleDrillStart} disabled={busy}>
+                Start drill (get claim)
+              </button>
+              {drillClaim && (
+                <>
+                  <div className="partner-mockup-msg partner-mockup-msg-assistant">
+                    <div className="partner-mockup-msg-meta">
+                      Claim ({drillClaimPosition})
+                    </div>
+                    <p>{drillClaim}</p>
+                  </div>
+                  <label className="form-label">Your rebuttal</label>
+                  <textarea
+                    className="input-large partner-mockup-textarea"
+                    rows={4}
+                    value={drillRebuttal}
+                    onChange={(e) => setDrillRebuttal(e.target.value)}
+                    placeholder="Refute the claim from first principles..."
+                  />
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={handleDrillSubmit}
+                    disabled={busy || !drillRebuttal.trim()}
+                  >
+                    Submit rebuttal
+                  </button>
+                </>
+              )}
+              {drillScore && (
+                <div className="partner-mockup-score">
+                  <h3>Drill score — {drillScore.overall_score}/10</h3>
+                  <p>{drillScore.feedback}</p>
+                  <ul>
+                    <li>Refutation: {drillScore.metrics?.refutation_quality}</li>
+                    <li>Evidence: {drillScore.metrics?.evidence_examples}</li>
+                    <li>Impact: {drillScore.metrics?.impact_comparison}</li>
+                  </ul>
+                </div>
+              )}
+            </section>
 
             <section className="partner-mockup-section">
               <h2>Request log</h2>
