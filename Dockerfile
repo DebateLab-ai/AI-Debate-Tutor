@@ -1,7 +1,5 @@
 FROM python:3.11-slim-bookworm
 
-# WeasyPrint needs Pango/Cairo/GLib at runtime for /api/v1/debates/{id}/report.pdf.
-# A Dockerfile is more reliable on Railway than nixpacks aptPkgs alone.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpango-1.0-0 \
     libpangoft2-1.0-0 \
@@ -18,10 +16,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY backend/ .
 
 ENV PYTHONUNBUFFERED=1
 
