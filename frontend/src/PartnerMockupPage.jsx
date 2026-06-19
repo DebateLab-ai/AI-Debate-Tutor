@@ -372,11 +372,20 @@ function PartnerMockupPage() {
                   <div className="partner-mockup-score">
                     <h3>Score — {score.overall}/10</h3>
                     <p>{score.feedback}</p>
-                    <ul>
-                      <li>Content/structure: {score.metrics?.content_structure}</li>
-                      <li>Engagement: {score.metrics?.engagement}</li>
-                      <li>Strategy: {score.metrics?.strategy}</li>
-                    </ul>
+                    <div className="partner-mockup-metrics">
+                      <div className="partner-mockup-metric">
+                        <strong>Content/structure — {score.metrics?.content_structure}/10</strong>
+                        {score.content_structure_feedback && <p>{score.content_structure_feedback}</p>}
+                      </div>
+                      <div className="partner-mockup-metric">
+                        <strong>Engagement — {score.metrics?.engagement}/10</strong>
+                        {score.engagement_feedback && <p>{score.engagement_feedback}</p>}
+                      </div>
+                      <div className="partner-mockup-metric">
+                        <strong>Strategy — {score.metrics?.strategy}/10</strong>
+                        {score.strategy_feedback && <p>{score.strategy_feedback}</p>}
+                      </div>
+                    </div>
                     <p><strong>weakness_type:</strong> {score.weakness_type}</p>
                   </div>
                 )}

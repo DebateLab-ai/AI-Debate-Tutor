@@ -1996,6 +1996,26 @@ select.input-large option {
   background: rgba(90, 157, 232, 0.06);
 }
 
+.partner-mockup-metrics {
+  display: grid;
+  gap: 14px;
+  margin: 16px 0;
+}
+
+.partner-mockup-metric {
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.partner-mockup-metric p {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
 .partner-mockup-log {
   max-height: 360px;
   overflow: auto;
