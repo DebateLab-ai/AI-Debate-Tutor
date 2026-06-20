@@ -88,3 +88,41 @@ The PDF has two sections: feedback + next drill, and the full transcript.
 curl "https://api.debatelab.ai/api/v1/debates?external_user_id=student-123&limit=20" \
   -H "X-API-Key: $DEBATELAB_KEY"
 ```
+
+## 7. (Optional) Rebuttal drill after scoring
+
+After step 4, read `weakness_type` from the finish response (e.g. `"rebuttal"`). Start a stateless drill — your server keeps the claim between calls; nothing is stored in our database.
+
+### Start — get a claim to rebut
+
+```bash
+curl https://api.debatelab.ai/api/v1/drills/rebuttal/start \
+  -H "X-API-Key: $DEBATELAB_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "motion": "THW ban single-use plastics globally",
+    "user_position": "for",
+    "weakness_type": "rebuttal",
+    "external_user_id": "student-123"
+  }'
+```
+
+Save `claim` and `claim_position` from the response.
+
+### Submit — score the rebuttal, get the next claim
+
+```bash
+curl https://api.debatelab.ai/api/v1/drills/rebuttal/submit \
+  -H "X-API-Key: $DEBATELAB_KEY" \
+  -H "Content-Type: application/json" \
+  --max-time 60 \
+  -d '{
+    "motion": "THW ban single-use plastics globally",
+    "claim": "PASTE_CLAIM_FROM_START",
+    "claim_position": "against",
+    "rebuttal": "The claim assumes medical plastics cannot be replaced, but many hospitals already use reusable sterilizable alternatives without compromising safety.",
+    "weakness_type": "rebuttal"
+  }'
+```
+
+The response includes `overall_score`, `feedback`, and `next_claim` / `next_claim_position` for another practice round. Loop `/submit` with the new claim to continue.

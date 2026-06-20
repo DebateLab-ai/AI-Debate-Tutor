@@ -105,6 +105,48 @@ curl https://api.debatelab.ai/api/v1/debates/8c2f.../report.pdf \
 
 Two sections: feedback and next steps, then a full transcript.
 
+## Optional: rebuttal drill after scoring
+
+After `/finish`, the score includes a `weakness_type` (e.g. `"rebuttal"`, `"structure"`, `"weighing"`). You can chain into a **stateless drill loop** — same logic as the website's rebuttal drill — to give the student targeted practice. No extra Supabase tables; your server stores `claim` / `next_claim` between calls.
+
+### 1. Start the drill
+
+Use the debate's `motion`, the side the student argued (`user_position`), and `weakness_type` from the score:
+
+```bash
+curl https://api.debatelab.ai/api/v1/drills/rebuttal/start \
+  -H "X-API-Key: sk_live_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "motion": "THW ban single-use plastics globally",
+    "user_position": "for",
+    "weakness_type": "rebuttal",
+    "external_user_id": "student-123"
+  }'
+```
+
+Returns a `claim` on the opposite side (`claim_position`) for the student to rebut.
+
+### 2. Submit a rebuttal
+
+```bash
+curl https://api.debatelab.ai/api/v1/drills/rebuttal/submit \
+  -H "X-API-Key: sk_live_..." \
+  -H "Content-Type: application/json" \
+  --max-time 60 \
+  -d '{
+    "motion": "THW ban single-use plastics globally",
+    "claim": "...",
+    "claim_position": "against",
+    "rebuttal": "The proposition overstates economic dependence on single-use plastics...",
+    "weakness_type": "rebuttal"
+  }'
+```
+
+Returns a score (`overall_score`, per-metric feedback) plus `next_claim` for another round. Repeat `/submit` with the new claim to keep practicing.
+
+See **[Rebuttal drill](./reference.md#rebuttal-drill)** in the API reference for full request/response shapes.
+
 ## What's next
 
 - **[Concepts](./concepts.md)** — what `mode`, `difficulty`, and `metadata` actually do

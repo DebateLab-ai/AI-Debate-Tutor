@@ -11,6 +11,8 @@ All endpoints share the prefix `/api/v1/`. All require the `X-API-Key` header. A
 | `GET` | `/api/v1/debates/{id}` | Fetch a debate's full state |
 | `GET` | `/api/v1/debates` | List debates with filters |
 | `GET` | `/api/v1/debates/{id}/report.pdf` | Download the PDF report |
+| `POST` | `/api/v1/drills/rebuttal/start` | Generate a drill claim for the student to rebut |
+| `POST` | `/api/v1/drills/rebuttal/submit` | Score a drill rebuttal; get the next claim |
 
 ---
 

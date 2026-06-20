@@ -10,12 +10,14 @@ https://api.debatelab.ai
 
 ## Quick links
 
-- **[Getting started](./getting-started.md)** — auth, your first call, a full debate lifecycle in 10 minutes
+- **[Getting started](./getting-started.md)** — auth, your first call, a full debate lifecycle, optional rebuttal drill
 - **[Concepts](./concepts.md)** — modes, difficulty tiers, metadata, student IDs, rate limits
 - **[API reference](./reference.md)** — every endpoint, every parameter, every response shape
 - **[Errors](./errors.md)** — status codes and error response format
 - **[Safety](./safety.md)** — content moderation behavior and partner responsibilities
-- **[Examples](./examples/)** — full debate lifecycle in [curl](./examples/curl.md), [Python](./examples/python.md), and [JavaScript](./examples/javascript.md)
+- **[Examples](./examples/)** — full lifecycle (+ optional drill) in [curl](./examples/curl.md), [Python](./examples/python.md), and [JavaScript](./examples/javascript.md)
+
+**Live interactive docs:** [https://api.debatelab.ai/docs](https://api.debatelab.ai/docs) (OpenAPI / Swagger, generated from the running API)
 
 ## What you can build
 
