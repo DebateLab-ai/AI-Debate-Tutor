@@ -69,7 +69,11 @@ jobs:
           cache-dependency-path: backend/requirements.txt
 
       - name: Install deps
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          # FastAPI 0.104 / Starlette TestClient still pass app= to httpx.Client;
+          # httpx>=0.28 removed that kwarg. Pin only for this job (smokes use TestClient).
+          pip install 'httpx>=0.27,<0.28'
 
       - name: Tenant scoping smoke
         env:
