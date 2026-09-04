@@ -1,0 +1,51 @@
+name: ci
+
+# PR / main gate: catch broken frontend builds and Python syntax errors
+# before they hit Vercel/Railway. Deploy itself stays on those hosts.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Syntax check
+        # compileall catches import/syntax errors without needing API keys or a live DB.
+        run: python -m compileall -q app
