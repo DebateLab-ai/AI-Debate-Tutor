@@ -15,6 +15,7 @@ https://api.debatelab.ai
 - **[API reference](./reference.md)** — every endpoint, every parameter, every response shape
 - **[Errors](./errors.md)** — status codes and error response format
 - **[Safety](./safety.md)** — content moderation behavior and partner responsibilities
+- **[Subprocessors](./subprocessors.md)** — the third parties that process data on our behalf
 - **[Examples](./examples/)** — full lifecycle (+ optional drill) in [curl](./examples/curl.md), [Python](./examples/python.md), and [JavaScript](./examples/javascript.md)
 
 **Live interactive docs:** [https://api.debatelab.ai/docs](https://api.debatelab.ai/docs) (OpenAPI / Swagger, generated from the running API)

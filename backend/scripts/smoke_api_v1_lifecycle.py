@@ -22,6 +22,14 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
+# The full --with-ai path makes well over 15 requests on one key inside a
+# minute, which trips the production default (15/min) partway through and fails
+# the run on a 429 that has nothing to do with what is under test. Rate limiting
+# has its own coverage; raise the ceiling here. Must be set before app.ratelimit
+# is imported, since it reads the env var at module load.
+import os
+os.environ.setdefault("API_RATE_LIMIT_PER_MIN", "1000")
+
 from fastapi.testclient import TestClient
 
 from app.db import get_client

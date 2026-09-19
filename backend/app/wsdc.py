@@ -30,6 +30,8 @@ load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.dirname(__file__)),
 
 _anthropic = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
+from app import billing
+
 _SONNET = "claude-sonnet-4-6"
 _HAIKU = "claude-haiku-4-5"
 
@@ -186,6 +188,7 @@ def _run_pass1(
         system=system,
         messages=[{"role": "user", "content": user_msg}],
     )
+    billing.record_anthropic(resp, model=_SONNET, event_type="ai_speech_pass1")
     raw = resp.content[0].text.strip()
 
     cleaned = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
@@ -258,6 +261,7 @@ def _run_pass2(speech_json: dict, difficulty: str, format: str) -> str:
         temperature=0.6,
         messages=[{"role": "user", "content": prompt}],
     )
+    billing.record_anthropic(resp, model=model, event_type="ai_speech_pass2")
     return resp.content[0].text.strip()
 
 

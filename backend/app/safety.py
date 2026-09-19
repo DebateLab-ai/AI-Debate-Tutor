@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 
 from fastapi import HTTPException, status
 from openai import OpenAI
+from app import billing
 
 MODERATION_MODEL = os.getenv("MODERATION_MODEL", "omni-moderation-latest")
 # Fail-fast: moderation runs inline in the request path, so the SDK defaults
@@ -158,6 +159,16 @@ def check_text(text: str) -> ModerationResult:
             _get_client()
             .with_options(timeout=MODERATION_TIMEOUT_SECONDS, max_retries=0)
             .moderations.create(model=MODERATION_MODEL, input=text)
+        )
+        # Moderation is free on the current rate card, but it is recorded anyway:
+        # it runs on every input AND output, so if it ever starts costing money
+        # the volume is significant and we want the history already in place.
+        # Recorded even when the speech is blocked — we paid for the check.
+        billing.record_model_call(
+            provider="openai",
+            model=MODERATION_MODEL,
+            event_type="moderation",
+            usage={"input_tokens": 0, "output_tokens": 0},
         )
         scores = resp.results[0].category_scores.model_dump(by_alias=True)
     except Exception as e:  # network error, bad key, API outage, schema drift

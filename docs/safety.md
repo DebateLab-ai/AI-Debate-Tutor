@@ -52,11 +52,40 @@ You operate on top of our policy, not in place of it. Partners must:
 
 We reserve the right to revoke an API key for documented abuse without prior notice.
 
+## Where student text goes
+
+Student speeches are sent to third-party AI providers. This is how debate replies are
+generated and how debates are scored — it is not limited to moderation.
+
+| Provider | What it receives | What it does with it |
+|---|---|---|
+| **Anthropic** (Claude Sonnet 4.6, Claude Haiku 4.5) | Motion, debate transcript, student speeches | Generates AI debate replies; scores the completed debate |
+| **OpenAI** (GPT-4o-mini, GPT-4o, `omni-moderation-latest`) | Motion, debate transcript, student speeches | Generates AI debate replies; screens every input and output; scoring fallback when Anthropic is unavailable |
+
+Both process this text under their commercial API terms:
+
+- **Neither trains on it.** Anthropic and OpenAI do not use data submitted through their
+  APIs to train models. That is the default for API customers.
+- **Both retain it briefly.** Each holds API inputs and outputs for a limited period — on
+  the order of 30 days — for abuse monitoring, and content their trust-and-safety systems
+  flag may be held longer and reviewed by a person. **We do not have a zero-retention
+  agreement with either provider.** If your compliance regime requires zero retention at
+  the model layer, tell us before you integrate.
+
+All processing is US-based. See [subprocessors.md](./subprocessors.md) for the full vendor
+list, and [concepts.md](./concepts.md#data-retention) for how long *we* keep debate data.
+
 ## What we don't do
 
-- We don't train models on student content.
-- We don't share screened text with anyone outside the OpenAI moderation endpoint (which doesn't train on the input).
-- We don't store the bodies of flagged messages — only structured log lines (category names, no identity).
+- We don't train models on student content, and neither do our AI providers (see above).
+- We don't sell student data, and we don't share it with anyone outside the vendors listed
+  in [subprocessors.md](./subprocessors.md).
+- We don't store the bodies of flagged messages — only structured log lines (category
+  names, no identity).
+- We don't ask for student identities. `external_user_id` is your own opaque reference and
+  means nothing to us. **Note:** anything you put in `metadata` — a debater's name, a class,
+  an instructor — *is* stored by us and rendered into the PDF report. Keep personal data out
+  of `metadata` if your obligations require it.
 
 ## Practical tip for integration
 
