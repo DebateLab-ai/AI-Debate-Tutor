@@ -1,11 +1,12 @@
 import hashlib
 from dataclasses import dataclass
 
-from fastapi import HTTPException, Security, status
+from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import APIKeyHeader
 
 from app.db import get_client
 from app.ratelimit import enforce_rate_limit
+from app import billing
 
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
@@ -77,3 +78,22 @@ def verify_api_key(raw_key: str = Security(_api_key_header)) -> AuthContext:
         pass
 
     return AuthContext(tenant_id=str(row["tenant_id"]), api_key_id=str(row["id"]))
+
+
+async def bind_billing_context(auth: AuthContext = Depends(verify_api_key)) -> AuthContext:
+    """Bind the request to its tenant for cost attribution.
+
+    MUST BE ASYNC. FastAPI runs sync dependencies and sync endpoints in separate
+    threadpool calls, and anyio gives each one a *copy* of the context — so a
+    ContextVar set inside the sync verify_api_key never reaches the endpoint
+    body, and every cost row lands with tenant_id NULL. An async dependency runs
+    in the request's own context, which the endpoint's threadpool call then
+    inherits. Verified by scripts/smoke_billing_attribution.py; do not convert
+    this to a sync def.
+
+    verify_api_key is resolved through the normal dependency cache, so declaring
+    this at router level does not re-run the key lookup or double-count the rate
+    limiter.
+    """
+    billing.set_context(tenant_id=auth.tenant_id)
+    return auth

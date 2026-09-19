@@ -10,6 +10,7 @@ inside endpoint bodies (avoids a circular import: main mounts this router).
 
 from __future__ import annotations
 
+import json
 import time
 from datetime import datetime
 from typing import Any, Literal, Optional
@@ -19,12 +20,22 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, 
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from app.auth import AuthContext, verify_api_key
+from app.auth import AuthContext, bind_billing_context, verify_api_key
 from app.usage import log_usage
 from app import debates_store
 from app.safety import assert_input_safe
+from app import billing
+from app import spendcap
 
-router = APIRouter(prefix="/api/v1", tags=["public-api"])
+# bind_billing_context is declared router-wide so every authenticated request
+# binds its tenant for cost attribution before the endpoint body runs. It must
+# stay async — see the docstring in app/auth.py. verify_api_key is dependency-
+# cached, so this does not re-run the key lookup or the rate limiter.
+router = APIRouter(
+    prefix="/api/v1",
+    tags=["public-api"],
+    dependencies=[Depends(bind_billing_context)],
+)
 
 IDEMPOTENCY_KEY_MAX_LEN = 128
 
@@ -268,6 +279,22 @@ def _advance_state(
     return current_round, _second_speaker(just_spoke), "active"
 
 
+def _cost_guard(auth: AuthContext) -> None:
+    """Hard-stop a tenant that has hit its monthly cap. Raises 402.
+
+    Called at the top of every endpoint that can trigger a paid model call.
+    Read-only endpoints (GET debates, GET report.pdf) are deliberately NOT
+    guarded: a partner at their cap must still be able to retrieve work they
+    have already paid for.
+    """
+    spendcap.enforce_spend_cap(auth.tenant_id)
+
+
+def _cost_after(bg: BackgroundTasks, auth: AuthContext) -> None:
+    """Queue the 50/80/100% threshold check. Runs after the response; never raises."""
+    bg.add_task(spendcap.check_thresholds_and_alert, auth.tenant_id)
+
+
 def _log(bg: BackgroundTasks, auth: AuthContext, endpoint: str, status_code: int, latency_ms: int) -> None:
     bg.add_task(
         log_usage,
@@ -329,18 +356,25 @@ def _save_idempotency(
     if not key:
         return
     try:
+        # json.loads(body.json()) — NOT body.dict(). .dict() leaves UUID and
+        # datetime as Python objects, which the Supabase client cannot encode;
+        # the insert raised, this except swallowed it, and Idempotency-Key
+        # silently did nothing. .json() applies Pydantic's encoders first.
         debates_store.save_idempotency_record(
             tenant_id=auth.tenant_id,
             idempotency_key=key,
             endpoint=endpoint,
             response_status=status_code,
-            response_body=body.dict(),
+            response_body=json.loads(body.json()),
         )
     except Exception as e:
         print(f"[api_v1] idempotency save skipped: {type(e).__name__}: {e}")
 
 
 def _generate_assistant_text(debate: dict[str, Any], tenant_id: str) -> str:
+    # Tag the cost rows this generation produces with the debate they belong to,
+    # so an invoice line can be traced back to a specific debate.
+    billing.set_debate(str(debate["id"]))
     all_msgs = debates_store.list_messages(tenant_id=tenant_id, debate_id=debate["id"])
     from app.main import generate_ai_turn_text  # lazy
     internal_debate = _db_to_internal_debate(debate)
@@ -388,6 +422,11 @@ def create_debate(
     auth: AuthContext = Depends(verify_api_key),
 ):
     start = time.monotonic()
+    # Guarded so a capped tenant fails BEFORE a student writes a speech they
+    # cannot submit. Creating costs nothing itself, but handing back a debate
+    # that immediately 402s on the first turn is worse UX than refusing here.
+    _cost_guard(auth)
+    _cost_after(background_tasks, auth)
     if body.mode in ("wsdc", "ap") and body.num_rounds > 3:
         _log(background_tasks, auth, "POST /api/v1/debates", 400, int((time.monotonic() - start) * 1000))
         raise HTTPException(400, "Parliamentary modes support up to 3 rounds")
@@ -421,6 +460,8 @@ def open_debate(
     """Generate the AI opening speech when starter is assistant (next_speaker=assistant)."""
     start = time.monotonic()
     endpoint = "POST /api/v1/debates/{id}/open"
+    _cost_guard(auth)
+    _cost_after(background_tasks, auth)
     idem_key = _normalize_idempotency_key(idempotency_key)
 
     cached = _idempotency_cached(auth, idem_key, endpoint)
@@ -479,6 +520,8 @@ def submit_turn(
 ):
     start = time.monotonic()
     endpoint = "POST /api/v1/debates/{id}/turns"
+    _cost_guard(auth)
+    _cost_after(background_tasks, auth)
     idem_key = _normalize_idempotency_key(idempotency_key)
 
     cached = _idempotency_cached(auth, idem_key, endpoint)
@@ -590,6 +633,13 @@ def finish_debate(
 ):
     start = time.monotonic()
     endpoint = "POST /api/v1/debates/{id}/finish"
+    # DELIBERATELY NOT _cost_guard'd. Scoring is the cheapest call (~$0.006 vs
+    # ~$0.027 a speech), it is terminal, and it is idempotent — a repeat returns
+    # the cached score without re-scoring, so the spend it can add is bounded by
+    # debates that ALREADY incurred 3-4x more in speeches. Capping it strands a
+    # student who has done the whole lesson with nothing to show for it, to save
+    # less than a cent. Reads are open for the same reason.
+    _cost_after(background_tasks, auth)
 
     debate = debates_store.get_debate(tenant_id=auth.tenant_id, debate_id=debate_id)
     if not debate:
@@ -607,6 +657,7 @@ def finish_debate(
         raise HTTPException(400, "Cannot score a debate with no turns")
 
     from app.main import compute_debate_score  # lazy
+    billing.set_debate(str(debate["id"]))
     internal_debate = _db_to_internal_debate(debate)
     internal_msgs = _db_to_internal_messages(msgs)
     breakdown = compute_debate_score(internal_debate, internal_msgs)
@@ -742,6 +793,8 @@ def start_rebuttal_drill(
     """
     start = time.monotonic()
     endpoint = "POST /api/v1/drills/rebuttal/start"
+    _cost_guard(auth)
+    _cost_after(background_tasks, auth)
 
     assert_input_safe(body.motion, where="drill motion")
 
@@ -776,6 +829,8 @@ def submit_rebuttal_drill(
     """
     start = time.monotonic()
     endpoint = "POST /api/v1/drills/rebuttal/submit"
+    _cost_guard(auth)
+    _cost_after(background_tasks, auth)
 
     assert_input_safe(body.rebuttal, where="drill rebuttal")
 

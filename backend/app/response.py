@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import List, Dict, Optional, Tuple, Iterable
 from dotenv import load_dotenv
 from app.safety import SAFETY_PREAMBLE
+from app import billing
 # Optional heavy deps
 try:
     from sklearn.feature_extraction.text import TfidfVectorizer
@@ -242,27 +243,12 @@ class SimpleRAG:
                 )
 
 
-                # --- token usage from API ---
-                prompt_tokens = resp.usage.prompt_tokens
-                completion_tokens = resp.usage.completion_tokens
-                total_tokens = resp.usage.total_tokens  # if you need it
-
-                # --- pricing (check actual numbers on the pricing page) ---
-                price_per_m_input = 0.15   # dollars per 1M input tokens
-                price_per_m_output = 0.60  # dollars per 1M output tokens
-
-                cost = (
-                    (prompt_tokens / 1_000_000) * price_per_m_input
-                    + (completion_tokens / 1_000_000) * price_per_m_output
-                )
-
-                # if you want to log it:
-                print(
-                    f"usage: prompt={prompt_tokens}, completion={completion_tokens}, "
-                    f"total={total_tokens}, cost=${cost:.6f}"
-                )
-
-
+                # Cost is recorded to the cost_events ledger, priced against the
+                # versioned rate card in app/pricing.py. Previously this block
+                # computed a cost from hardcoded per-token prices and printed it
+                # to stdout — that produced no billable record and went stale
+                # silently. Do not reintroduce literal prices here.
+                billing.record_openai(resp, model=model, event_type="ai_speech")
 
                 return resp.choices[0].message.content.strip()
             except Exception as e:

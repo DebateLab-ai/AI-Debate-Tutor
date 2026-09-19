@@ -27,6 +27,7 @@ from app.auth import verify_api_key, AuthContext
 from app.usage import log_usage
 from app.safety import assert_input_safe, screen_output, SAFETY_PREAMBLE
 from app.difficulty import Difficulty, DEFAULT_DIFFICULTY, get_config as get_difficulty_config, apply_score_floor
+from app import billing
 
 # ---------- Types ----------
 # Load .env file from backend directory (parent of app directory) for local development
@@ -55,6 +56,75 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc"
 )
+
+
+@app.on_event("startup")
+async def _raise_threadpool_limit() -> None:
+    """Raise the threadpool ceiling above anyio's default of 40.
+
+    Every endpoint in this app is `def`, not `async def`, so FastAPI runs each
+    request in a worker thread. A turn holds its thread for the whole model
+    call (2-6s, p95 4.7s) while blocked on network I/O, so the pool size — not
+    CPU — is what caps concurrent requests.
+
+    MUST be `async def`. The limiter lives in an anyio RunVar scoped to the
+    running event loop; setting it from a sync startup handler (which FastAPI
+    dispatches to a worker thread) would write to a different context and
+    silently do nothing.
+
+    NOT a substitute for `uvicorn --workers`, and deliberately so: the website's
+    in-memory DEBATES/MESSAGES/SCORES dicts and ratelimit.py's _hits dict are
+    both per-process, so extra workers would fragment both. One process with a
+    bigger pool keeps them correct.
+    """
+    import anyio.to_thread
+
+    DEFAULT, MIN, MAX = 75, 8, 500
+    raw = os.getenv("THREADPOOL_LIMIT", str(DEFAULT))
+    try:
+        # Parse INSIDE the try: a typo'd env var must not take the site down on
+        # boot. Everything here falls back rather than raising.
+        limit = int(raw)
+        if not (MIN <= limit <= MAX):
+            print(f"[startup] THREADPOOL_LIMIT={limit} outside {MIN}-{MAX}; using {DEFAULT}")
+            limit = DEFAULT
+        anyio.to_thread.current_default_thread_limiter().total_tokens = limit
+        print(f"[startup] threadpool limit set to {limit} (anyio default is 40)")
+    except Exception as e:
+        print(
+            f"[startup] could not apply THREADPOOL_LIMIT={raw!r} "
+            f"({type(e).__name__}: {e}); leaving anyio default of 40"
+        )
+
+
+# The website API (/v1/*) and the public partner API (/api/v1/*) live in the
+# same app. The interactive docs (/docs, /redoc) and /openapi.json are publicly
+# reachable, so by default a partner could see the internal website endpoints.
+# Scope the served schema to the public surface only — partners get a clean
+# Swagger UI for their 6 endpoints; the website routes never appear. The
+# frontend doesn't consume the OpenAPI schema, so nothing else is affected.
+def public_only_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    from fastapi.openapi.utils import get_openapi
+
+    public_routes = [
+        route for route in app.routes
+        if getattr(route, "path", "").startswith("/api/v1")
+    ]
+    app.openapi_schema = get_openapi(
+        title="DebateLab AI — Public API",
+        version="1.0.0",
+        description=(
+            "Server-side debate-practice API. See the partner docs for guides "
+            "and examples. All endpoints require the X-API-Key header."
+        ),
+        routes=public_routes,
+    )
+    return app.openapi_schema
+
+
+app.openapi = public_only_openapi
 
 # Custom error handler for validation errors - show user-friendly messages
 @app.exception_handler(RequestValidationError)
@@ -718,6 +788,7 @@ Compelling, rigorous, well-structured."""
                 temperature=temperature,
                 max_tokens=max_tokens,
             )
+            billing.record_openai(resp, model="gpt-4o-mini", event_type="ai_speech")
             ai_response = resp.choices[0].message.content.strip()
             # Strip any [Round X · ASSISTANT] or [Round X · USER] tags that the AI might have included
             ai_response = re.sub(r'\[Round \d+ · (ASSISTANT|USER)\]\s*', '', ai_response, flags=re.IGNORECASE)
@@ -735,6 +806,10 @@ def transcribe_with_whisper(audio_bytes: bytes, filename: str = "audio.wav") -> 
     from io import BytesIO
     bio = BytesIO(audio_bytes)
     bio.name = filename
+    # Not metered into cost_events: the default transcription response carries no
+    # duration, and Whisper bills per minute. Reaching it would mean switching to
+    # response_format="verbose_json" on a live website path for no billing gain —
+    # the partner API has no audio endpoint, so this never appears on an invoice.
     resp = client.audio.transcriptions.create(model="whisper-1", file=bio)
     return resp.text
 
@@ -772,6 +847,7 @@ def _call_scoring_llm(system_prompt: str, convo: list[dict], final_user_msg: str
                 system=system_prompt,
                 messages=[{"role": "user", "content": anth_user}],
             )
+            billing.record_anthropic(resp, model=_SCORING_HAIKU, event_type="score")
             raw = resp.content[0].text.strip()
             # Anthropic doesn't have a JSON mode; strip ``` fences if present.
             raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
@@ -794,6 +870,7 @@ def _call_scoring_llm(system_prompt: str, convo: list[dict], final_user_msg: str
             temperature=0.5,
             response_format={"type": "json_object"},
         )
+        billing.record_openai(resp, model=openai_model, event_type="score")
         print(f"[scoring] OpenAI {openai_model} scored OK")
         return resp.choices[0].message.content.strip()
     except Exception as exc:
@@ -1560,6 +1637,10 @@ Compelling, rigorous, well-structured."""
                 messages_list = [{"role": "system", "content": sys}] + messages_list
             
             stream = client.chat.completions.create(
+                # Not metered: a streamed response carries no usage block unless
+                # stream_options={"include_usage": True} is set. Website-only path
+                # (the partner API has no streaming endpoint), so nothing billable
+                # is lost. Add the flag here if the website ever needs costing.
                 model="gpt-4o-mini",
                 messages=messages_list,
                 temperature=temperature,
@@ -1817,6 +1898,7 @@ def generate_drill_claim(
             temperature=0.8,
             max_tokens=150,
         )
+        billing.record_openai(resp, model="gpt-4o-mini", event_type="drill_claim")
         return resp.choices[0].message.content.strip()
     except Exception as e:
         print(f"[DRILL] Claim generation failed: {e}")
@@ -1920,6 +2002,7 @@ def score_drill_rebuttal(
             temperature=0.3,
             response_format={"type": "json_object"},
         )
+        billing.record_openai(resp, model="gpt-4o-mini", event_type="drill_score")
         result = json.loads(resp.choices[0].message.content.strip())
 
         # Extract scores with defaults
@@ -2019,6 +2102,7 @@ def generate_evidence_claim(motion: str, claim_position: Literal["for", "against
             temperature=0.7,
             max_tokens=200,
         )
+        billing.record_openai(resp, model="gpt-4o-mini", event_type="evidence_claim")
         return resp.choices[0].message.content.strip()
     except Exception as e:
         print(f"[EVIDENCE DRILL] Claim generation failed: {e}")
@@ -2079,6 +2163,7 @@ def score_evidence(motion: str, claim: str, evidence: str) -> dict:
             temperature=0.3,
             response_format={"type": "json_object"},
         )
+        billing.record_openai(resp, model="gpt-4o-mini", event_type="evidence_score")
         result = json.loads(resp.choices[0].message.content.strip())
 
         # Extract scores with defaults
@@ -2153,3 +2238,9 @@ def health():
 # already defined by the time any request resolves them.
 from app import api_v1  # noqa: E402
 app.include_router(api_v1.router)
+
+# Private internal admin router (/internal/admin/*). Requires X-Admin-Token and
+# is hidden from the OpenAPI schema. Reads across all tenants, so it is kept
+# strictly separate from the partner surface above — see app/admin_api.py.
+from app import admin_api  # noqa: E402
+app.include_router(admin_api.router)
