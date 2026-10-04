@@ -422,6 +422,11 @@ select.input-large option {
   animation-delay: 0.4s;
 }
 
+.thinking-text {
+  color: var(--muted);
+  font-style: italic;
+}
+
 @keyframes typing {
   0%, 60%, 100% {
     transform: translateY(0);
