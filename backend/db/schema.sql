@@ -43,11 +43,15 @@ create table if not exists api_usage (
     endpoint        text        not null,
     response_status integer     not null,
     latency_ms      integer,
+    request_id      uuid,
     created_at      timestamptz not null default now()
 );
 
 create index if not exists idx_api_usage_tenant_id  on api_usage(tenant_id);
 create index if not exists idx_api_usage_created_at on api_usage(created_at);
+-- Existing databases created before request_id: CREATE TABLE above is a no-op.
+alter table api_usage add column if not exists request_id uuid;
+create index if not exists idx_api_usage_request on api_usage(tenant_id, request_id);
 
 -- debates: a single debate session owned by exactly one tenant.
 -- Partners pass external_user_id to map debates back to their own student records
@@ -154,6 +158,7 @@ create table if not exists cost_events (
     billable         boolean     not null default true,
     needs_repricing  boolean     not null default false,
     succeeded        boolean     not null default true,
+    request_id       uuid,
     created_at       timestamptz not null default now()
 );
 
@@ -164,6 +169,8 @@ create index if not exists idx_cost_events_tenant_created on cost_events(tenant_
 create index if not exists idx_cost_events_created_at     on cost_events(created_at);
 create index if not exists idx_cost_events_debate_id      on cost_events(debate_id);
 create index if not exists idx_cost_events_repricing      on cost_events(needs_repricing) where needs_repricing;
+alter table cost_events add column if not exists request_id uuid;
+create index if not exists idx_cost_events_request on cost_events(tenant_id, request_id);
 
 -- Lock the tables down: service role (used by the backend) bypasses RLS, so
 -- enabling RLS with no policies blocks all access via the public/anon key.

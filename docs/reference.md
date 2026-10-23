@@ -11,6 +11,8 @@ All endpoints share the prefix `/api/v1/`. All require the `X-API-Key` header. A
 | `GET` | `/api/v1/debates/{id}` | Fetch a debate's full state |
 | `GET` | `/api/v1/debates` | List debates with filters |
 | `GET` | `/api/v1/debates/{id}/report.pdf` | Download the PDF report |
+| `GET` | `/api/v1/usage` | Month-to-date calls and amount due |
+| `GET` | `/api/v1/usage/events` | Per-call cost lines for that month |
 | `POST` | `/api/v1/drills/rebuttal/start` | Generate a drill claim for the student to rebut |
 | `POST` | `/api/v1/drills/rebuttal/submit` | Score a drill rebuttal; get the next claim |
 
@@ -366,3 +368,88 @@ Common errors:
 - `503` — PDF generation temporarily unavailable
 
 > Debates are deleted after 7 days. If you want to keep PDFs longer, download and store them on your side within the retention window.
+
+---
+
+## Usage
+
+```
+GET /api/v1/usage
+GET /api/v1/usage/events
+```
+
+The month statement for your tenant. `amount_due_usd` is what you owe for that month: the sum of vendor cost for every model call we ran for you, at cost pass-through. The figure is stored when the call happens, to 8 decimal places, and is not recomputed later.
+
+Months are UTC. `period` is `YYYY-MM`. Omit it for the current month. `period_end` is exclusive.
+
+```
+GET /api/v1/usage?period=2026-10
+```
+
+```json
+{
+  "period": "2026-10",
+  "period_start": "2026-10-01T00:00:00Z",
+  "period_end": "2026-11-01T00:00:00Z",
+  "currency": "USD",
+  "amount_due_usd": "4.28190000",
+  "monthly_cap_usd": null,
+  "unpriced_events": 0,
+  "per_call_available": true,
+  "amount_without_call_id_usd": "0.00000000",
+  "requests": 140,
+  "requests_with_call_id": 140,
+  "requests_by_endpoint": [
+    { "endpoint": "POST /api/v1/debates/{id}/turns", "count": 80, "errors": 1 }
+  ],
+  "spend_by_kind": [
+    { "kind": "speech", "model_calls": 80, "amount_usd": "3.90000000" },
+    { "kind": "score", "model_calls": 20, "amount_usd": "0.38190000" },
+    { "kind": "moderation", "model_calls": 100, "amount_usd": "0.00000000" }
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `amount_due_usd` | Amount due for the month. This is the invoice number. |
+| `monthly_cap_usd` | Your cap, or `null` if you have none. |
+| `unpriced_events` | Model calls stored at zero because a price was missing. Non-zero means `amount_due_usd` is short until we reprice those rows. |
+| `requests` | HTTP calls, including reads and retries. |
+| `spend_by_kind` | The same money, split into `speech`, `score`, `drill`, and `moderation`. `model_calls` counts provider calls, so it is higher than `requests`. One student turn is one request and can be several model calls. |
+| `amount_without_call_id_usd` | Part of `amount_due_usd` that has no per-call line (calls from before line items existed). |
+
+`GET /api/v1/usage/events` pages those lines, newest first. `limit` is 1–200 (default 50). `offset` defaults to 0. Stop when a page comes back shorter than `limit`.
+
+```json
+{
+  "period": "2026-10",
+  "limit": 50,
+  "offset": 0,
+  "events": [
+    {
+      "request_id": "7b1e...",
+      "created_at": "2026-10-04T15:12:08Z",
+      "endpoint": "POST /api/v1/debates/{id}/turns",
+      "response_status": 200,
+      "debate_id": "8c2f...",
+      "amount_usd": "0.02740000",
+      "spend_by_kind": [
+        { "kind": "speech", "model_calls": 2, "amount_usd": "0.02740000" },
+        { "kind": "moderation", "model_calls": 1, "amount_usd": "0.00000000" }
+      ]
+    }
+  ]
+}
+```
+
+`amount_usd` on a line is every model charge that HTTP call produced, added together. A create, a read, or an idempotent retry of a call that already succeeded is `0.00000000`.
+
+Charges in `amount_without_call_id_usd` are not in this list. Add the lines yourself only if you need a cross-check. The month total is already the full sum.
+
+Both endpoints count toward the rate limit. Neither is blocked when the monthly cap is reached, so you can still read what you owe.
+
+Common errors:
+
+- `400` — `period` is not `YYYY-MM`, or it is after the current UTC month
+- `503` — the ledger could not be read completely. We return this instead of a total that is short. Retry.

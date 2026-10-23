@@ -511,6 +511,7 @@ def api_ping(
         endpoint="/api/v1/ping",
         response_status=200,
         latency_ms=latency,
+        request_id=str(uuid4()),
     )
     return {"status": "ok", "tenant_id": auth.tenant_id}
 
