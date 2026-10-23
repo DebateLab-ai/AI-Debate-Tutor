@@ -378,12 +378,13 @@ GET /api/v1/usage
 GET /api/v1/usage/events
 ```
 
-The month statement for your tenant. `amount_due_usd` is what you owe for that month: the sum of vendor cost for every model call we ran for you, at cost pass-through. The figure is stored when the call happens, to 8 decimal places, and is not recomputed later.
+What you owe for one UTC month, or for the whole account. `amount_due_usd` is the sum of vendor cost for every model call we ran for you in that window, at cost pass-through. The figure is stored when the call happens, to 8 decimal places, and is not recomputed later.
 
-Months are UTC. `period` is `YYYY-MM`. Omit it for the current month. `period_end` is exclusive.
+`period` is `YYYY-MM`, or `all`. Omit it for the current month. `period_end` is exclusive. For `all`, `period_start` is `null` and `period_end` is the time of the request, so the total is everything charged before that instant.
 
 ```
 GET /api/v1/usage?period=2026-10
+GET /api/v1/usage?period=all
 ```
 
 ```json
@@ -412,8 +413,8 @@ GET /api/v1/usage?period=2026-10
 
 | Field | Meaning |
 |---|---|
-| `amount_due_usd` | Amount due for the month. This is the invoice number. |
-| `monthly_cap_usd` | Your cap, or `null` if you have none. |
+| `amount_due_usd` | Amount due for this `period`. This is the invoice number. |
+| `monthly_cap_usd` | Your monthly cap, or `null` if you have none. The cap applies to the current month, including when `period` is `all`. |
 | `unpriced_events` | Model calls stored at zero because a price was missing. Non-zero means `amount_due_usd` is short until we reprice those rows. |
 | `requests` | HTTP calls, including reads and retries. |
 | `spend_by_kind` | The same money, split into `speech`, `score`, `drill`, and `moderation`. `model_calls` counts provider calls, so it is higher than `requests`. One student turn is one request and can be several model calls. |
@@ -451,5 +452,5 @@ Both endpoints count toward the rate limit. Neither is blocked when the monthly 
 
 Common errors:
 
-- `400` — `period` is not `YYYY-MM`, or it is after the current UTC month
+- `400` — `period` is not `YYYY-MM` or `all`, or the month is after the current UTC month
 - `503` — the ledger could not be read completely. We return this instead of a total that is short. Retry.

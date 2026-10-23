@@ -93,7 +93,7 @@ If you expect sustained higher throughput, ask us to raise the limit on your key
 
 ## Usage and charges
 
-You are billed at vendor cost, with no markup. `GET /api/v1/usage` is the month statement. `amount_due_usd` is the sum of the cost we recorded on each model call in that UTC month, to 8 decimal places. See the [usage reference](./reference.md#usage) for the response and for per-call lines.
+You are billed at vendor cost, with no markup. `GET /api/v1/usage` is the statement for one UTC month, or for the whole account with `?period=all`. `amount_due_usd` is the sum of the cost we recorded on each model call in that window, to 8 decimal places. See the [usage reference](./reference.md#usage) for the response and for per-call lines.
 
 A retry that sends the same `Idempotency-Key` after a successful turn does not run the model again, so it shows up as a request with no additional charge.
 

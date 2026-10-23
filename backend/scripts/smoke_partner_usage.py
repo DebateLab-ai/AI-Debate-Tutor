@@ -104,6 +104,11 @@ def pure_checks():
     label, window_start, window_end = partner_usage.parse_period(None, now=datetime(2026, 10, 22, tzinfo=timezone.utc))
     check(label == "2026-10" and window_start.day == 1 and window_end == datetime(2026, 11, 1, tzinfo=timezone.utc),
           "omitted period is the UTC month, end exclusive")
+    fixed = datetime(2026, 10, 22, 15, 0, tzinfo=timezone.utc)
+    all_label, all_start, all_end = partner_usage.parse_period("all", now=fixed)
+    check(all_label == "all" and all_start is None and all_end == fixed,
+          "period=all has no start and ends at the request time")
+    check(partner_usage.parse_period("ALL", now=fixed)[0] == "all", "period=ALL is accepted")
 
 
 def require_ledger():

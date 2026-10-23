@@ -187,7 +187,7 @@ class EndpointUsageOut(BaseModel):
 
 class UsageOut(BaseModel):
     period: str
-    period_start: datetime
+    period_start: Optional[datetime]
     period_end: datetime
     currency: str
     amount_due_usd: str
@@ -930,9 +930,12 @@ def _raise_usage(exc: Exception) -> None:
 def get_usage(
     background_tasks: BackgroundTasks,
     auth: AuthContext = Depends(verify_api_key),
-    period: Optional[str] = Query(default=None, description="UTC month YYYY-MM. Default: current month."),
+    period: Optional[str] = Query(
+        default=None,
+        description="UTC month YYYY-MM, or all. Default: current month.",
+    ),
 ):
-    """Month statement for this tenant: amount due, request counts, spend by kind.
+    """Statement for this tenant: amount due, request counts, spend by kind.
 
     Reads stay open at the spend cap, same as fetching a debate already paid for.
     amount_due_usd is the sum of stored vendor costs, not a fresh estimate.
@@ -953,7 +956,10 @@ def get_usage(
 def get_usage_events(
     background_tasks: BackgroundTasks,
     auth: AuthContext = Depends(verify_api_key),
-    period: Optional[str] = Query(default=None, description="UTC month YYYY-MM. Default: current month."),
+    period: Optional[str] = Query(
+        default=None,
+        description="UTC month YYYY-MM, or all. Default: current month.",
+    ),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ):

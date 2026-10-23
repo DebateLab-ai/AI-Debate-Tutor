@@ -55,7 +55,7 @@ _KIND_ORDER = ("speech", "score", "drill", "moderation", "transcription", "other
 
 
 class InvalidPeriod(ValueError):
-    """period was not YYYY-MM, or it is after the current UTC month."""
+    """period was not YYYY-MM or all, or the month is in the future."""
 
 
 class UsageUnavailable(Exception):
@@ -67,7 +67,7 @@ class MissingRequestIdColumn(UsageUnavailable):
 
 
 class UsageIncomplete(Exception):
-    """The month has more rows than we will silently truncate."""
+    """The window has more rows than we will silently truncate."""
 
 
 def partner_kind(event_type: Optional[str]) -> str:
@@ -94,12 +94,15 @@ def money_str(value: Decimal) -> str:
     return f"{value.quantize(_Q):.8f}"
 
 
-def parse_period(period: Optional[str], now: Optional[datetime] = None) -> tuple[str, datetime, datetime]:
-    """Return (YYYY-MM, start inclusive, end exclusive) in UTC.
+def parse_period(
+    period: Optional[str], now: Optional[datetime] = None
+) -> tuple[str, Optional[datetime], datetime]:
+    """Return (label, start inclusive or None, end exclusive) in UTC.
 
-    None means the current month. End is the first instant of the next month,
-    so a row written at 23:59:59.999 on the last day is inside and a row at
-    00:00 on the 1st of the next month is not.
+    None means the current month. "all" means every charge up to `now`, with
+    no start. For a month, end is the first instant of the next month, so a
+    row written at 23:59:59.999 on the last day is inside and a row at 00:00
+    on the 1st of the next month is not.
     """
     clock = now or datetime.now(timezone.utc)
     if clock.tzinfo is None:
@@ -107,15 +110,19 @@ def parse_period(period: Optional[str], now: Optional[datetime] = None) -> tuple
     else:
         clock = clock.astimezone(timezone.utc)
 
-    if period is None or not str(period).strip():
+    raw = "" if period is None else str(period).strip()
+    if raw.lower() == "all":
+        return "all", None, clock
+
+    if not raw:
         year, month = clock.year, clock.month
     else:
-        match = _PERIOD.match(str(period).strip())
+        match = _PERIOD.match(raw)
         if not match:
-            raise InvalidPeriod("period must be YYYY-MM")
+            raise InvalidPeriod("period must be YYYY-MM, or all")
         year, month = int(match.group(1)), int(match.group(2))
         if not 1 <= month <= 12:
-            raise InvalidPeriod("period must be YYYY-MM")
+            raise InvalidPeriod("period must be YYYY-MM, or all")
         if (year, month) > (clock.year, clock.month):
             raise InvalidPeriod("period is in the future")
 
@@ -125,6 +132,14 @@ def parse_period(period: Optional[str], now: Optional[datetime] = None) -> tuple
     else:
         end = datetime(year, month + 1, 1, tzinfo=timezone.utc)
     return f"{year:04d}-{month:02d}", start, end
+
+
+def _apply_window(query, start: Optional[datetime], end: Optional[datetime]):
+    if start is not None:
+        query = query.gte("created_at", start.isoformat())
+    if end is not None:
+        query = query.lt("created_at", end.isoformat())
+    return query
 
 
 def _missing_column(exc: Exception, column: str) -> bool:
@@ -137,7 +152,7 @@ def _fetch_pages(build) -> list[dict[str, Any]]:
     while True:
         if offset >= _MAX_ROWS:
             raise UsageIncomplete(
-                "This month has too many usage rows to total exactly. Contact DebateLab."
+                "Too many usage rows to total exactly. Contact DebateLab."
             )
         page = build(offset, _PAGE).execute().data or []
         rows.extend(page)
@@ -146,17 +161,20 @@ def _fetch_pages(build) -> list[dict[str, Any]]:
         offset += _PAGE
 
 
-def _fetch_costs(tenant_id: str, start: datetime, end: datetime) -> tuple[list[dict[str, Any]], bool]:
+def _fetch_costs(
+    tenant_id: str, start: Optional[datetime], end: Optional[datetime]
+) -> tuple[list[dict[str, Any]], bool]:
     """Cost rows for the window. Second value is whether request_id was readable."""
 
     def _query(select: str, offset: int, page: int):
-        return (
+        query = (
             get_client()
             .table("cost_events")
             .select(select)
             .eq("tenant_id", tenant_id)
-            .gte("created_at", start.isoformat())
-            .lt("created_at", end.isoformat())
+        )
+        return (
+            _apply_window(query, start, end)
             .order("id")
             .range(offset, offset + page - 1)
         )
@@ -191,17 +209,24 @@ def _fetch_costs(tenant_id: str, start: datetime, end: datetime) -> tuple[list[d
     return rows, False
 
 
-def _fetch_usage(tenant_id: str, start: datetime, end: datetime, *, with_request_id: bool) -> list[dict[str, Any]]:
+def _fetch_usage(
+    tenant_id: str,
+    start: Optional[datetime],
+    end: Optional[datetime],
+    *,
+    with_request_id: bool,
+) -> list[dict[str, Any]]:
     select = "id, endpoint, response_status, request_id" if with_request_id else "id, endpoint, response_status"
 
     def _query(offset: int, page: int):
-        return (
+        query = (
             get_client()
             .table("api_usage")
             .select(select)
             .eq("tenant_id", tenant_id)
-            .gte("created_at", start.isoformat())
-            .lt("created_at", end.isoformat())
+        )
+        return (
+            _apply_window(query, start, end)
             .order("id")
             .range(offset, offset + page - 1)
         )
@@ -227,7 +252,7 @@ def _cap_str(tenant_id: str) -> Optional[str]:
 def statement_from_rows(
     *,
     period: str,
-    start: datetime,
+    start: Optional[datetime],
     end: datetime,
     cap_usd: Optional[str],
     cost_rows: list[dict[str, Any]],
@@ -389,13 +414,14 @@ def list_events(
     """
     label, start, end = parse_period(period)
     try:
-        page = (
+        query = (
             get_client()
             .table("api_usage")
             .select("request_id, endpoint, response_status, created_at")
             .eq("tenant_id", tenant_id)
-            .gte("created_at", start.isoformat())
-            .lt("created_at", end.isoformat())
+        )
+        page = (
+            _apply_window(query, start, end)
             .not_.is_("request_id", "null")
             .order("id", desc=True)
             .range(offset, offset + limit - 1)
