@@ -34,6 +34,10 @@ from app.db import get_client
 class BillingContext:
     tenant_id: Optional[str] = None
     debate_id: Optional[str] = None
+    # One id for every model call a single HTTP request produces, so the
+    # partner usage feed can roll a speech plus its safety check into one line.
+    # None on the website, and on partner calls from before this was stamped.
+    request_id: Optional[str] = None
 
 
 _ctx: contextvars.ContextVar[BillingContext] = contextvars.ContextVar(
@@ -41,15 +45,27 @@ _ctx: contextvars.ContextVar[BillingContext] = contextvars.ContextVar(
 )
 
 
-def set_context(tenant_id: Optional[str], debate_id: Optional[str] = None) -> contextvars.Token:
+def set_context(
+    tenant_id: Optional[str],
+    debate_id: Optional[str] = None,
+    request_id: Optional[str] = None,
+) -> contextvars.Token:
     """Bind the current request to a tenant. Returns a token for reset_context."""
-    return _ctx.set(BillingContext(tenant_id=tenant_id, debate_id=debate_id))
+    return _ctx.set(BillingContext(
+        tenant_id=tenant_id, debate_id=debate_id, request_id=request_id,
+    ))
 
 
 def set_debate(debate_id: Optional[str]) -> None:
-    """Attach a debate to the already-bound tenant, once it is known."""
+    """Attach a debate to the already-bound tenant, once it is known.
+
+    Copies request_id forward. Replacing the whole context without it would
+    split one HTTP call across two usage lines.
+    """
     cur = _ctx.get()
-    _ctx.set(BillingContext(tenant_id=cur.tenant_id, debate_id=debate_id))
+    _ctx.set(BillingContext(
+        tenant_id=cur.tenant_id, debate_id=debate_id, request_id=cur.request_id,
+    ))
 
 
 def reset_context(token: contextvars.Token) -> None:
@@ -65,10 +81,32 @@ def current() -> BillingContext:
     return _ctx.get()
 
 
+def _with_request_id(row: dict[str, Any]) -> dict[str, Any]:
+    request_id = _ctx.get().request_id
+    if request_id and "request_id" not in row:
+        return {**row, "request_id": request_id}
+    return row
+
+
 def _insert(row: dict[str, Any]) -> None:
+    """Write one cost_events row. Never raises.
+
+    If the request_id column is not migrated yet, retry without it. A missing
+    column must not drop the charge — the month total still has to be exact,
+    and the per-call line can wait.
+    """
+    row = _with_request_id(row)
     try:
         get_client().table("cost_events").insert(row).execute()
     except Exception as e:
+        if row.get("request_id") and "request_id" in str(e).lower():
+            slim = {k: v for k, v in row.items() if k != "request_id"}
+            try:
+                get_client().table("cost_events").insert(slim).execute()
+                return
+            except Exception as e2:
+                print(f"[billing] FAILED to record cost event ({row.get('model')}): {e2}")
+                return
         # Log loudly — this is lost revenue, but still not worth an exception.
         print(f"[billing] FAILED to record cost event ({row.get('model')}): {e}")
 
@@ -97,7 +135,7 @@ def record_model_call(
             cost = 0.0
             needs_repricing = True
 
-        _insert({
+        row = {
             "tenant_id": ctx.tenant_id,
             "debate_id": debate_id or ctx.debate_id,
             "message_id": message_id,
@@ -113,7 +151,10 @@ def record_model_call(
             "billable": billable,
             "needs_repricing": needs_repricing,
             "succeeded": succeeded,
-        })
+        }
+        if ctx.request_id:
+            row["request_id"] = ctx.request_id
+        _insert(row)
     except Exception as e:
         print(f"[billing] record_model_call crashed, ignoring: {e}")
 
@@ -147,7 +188,7 @@ def record_audio(*, provider: str, model: str, seconds: float, event_type: str =
             print(f"[pricing] {e} — recording with cost 0.0 and needs_repricing=True")
             cost = 0.0
             needs_repricing = True
-        _insert({
+        row = {
             "tenant_id": ctx.tenant_id,
             "debate_id": ctx.debate_id,
             "event_type": event_type,
@@ -157,6 +198,9 @@ def record_audio(*, provider: str, model: str, seconds: float, event_type: str =
             "vendor_cost_usd": round(cost, 8),
             "price_version": pricing.CURRENT_VERSION,
             "needs_repricing": needs_repricing,
-        })
+        }
+        if ctx.request_id:
+            row["request_id"] = ctx.request_id
+        _insert(row)
     except Exception as e:
         print(f"[billing] record_audio crashed, ignoring: {e}")

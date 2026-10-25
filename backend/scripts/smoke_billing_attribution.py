@@ -84,6 +84,9 @@ def main():
         tenants = {row.get("tenant_id") for row in CAPTURED}
         check(tenants == {a_id},
               f"every cost event attributed to tenant A (saw {tenants})")
+        request_ids = {row.get("request_id") for row in CAPTURED}
+        check(len(request_ids) == 1 and None not in request_ids,
+              f"every cost event in the turn shares one request_id (saw {request_ids})")
         check(None not in tenants,
               "no cost event leaked to tenant_id=NULL (the silent revenue loss)")
         mods = [r for r in CAPTURED if r["event_type"] == "moderation"]
@@ -110,6 +113,8 @@ def main():
         check_text("An ordinary sentence with no tenant bound.")
         check(all(r.get("tenant_id") is None for r in CAPTURED),
               "an unauthenticated/website call records with tenant_id NULL")
+        check(all(r.get("request_id") is None for r in CAPTURED),
+              "a website call has no partner request_id")
 
         # Rate limiter must not be double-counted by the router-level dependency.
         from app.ratelimit import _hits

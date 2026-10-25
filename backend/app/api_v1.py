@@ -25,6 +25,7 @@ from app.usage import log_usage
 from app import debates_store
 from app.safety import assert_input_safe
 from app import billing
+from app import partner_usage
 from app import spendcap
 
 # bind_billing_context is declared router-wide so every authenticated request
@@ -172,6 +173,51 @@ class RebuttalDrillScoreOut(BaseModel):
     weakness_type: Optional[WeaknessType] = None
 
 
+class SpendKindOut(BaseModel):
+    kind: str
+    model_calls: int
+    amount_usd: str
+
+
+class EndpointUsageOut(BaseModel):
+    endpoint: str
+    count: int
+    errors: int
+
+
+class UsageOut(BaseModel):
+    period: str
+    period_start: Optional[datetime]
+    period_end: datetime
+    currency: str
+    amount_due_usd: str
+    monthly_cap_usd: Optional[str]
+    unpriced_events: int
+    per_call_available: bool
+    amount_without_call_id_usd: Optional[str]
+    requests: int
+    requests_with_call_id: int
+    requests_by_endpoint: list[EndpointUsageOut]
+    spend_by_kind: list[SpendKindOut]
+
+
+class UsageEventOut(BaseModel):
+    request_id: UUID
+    created_at: datetime
+    endpoint: str
+    response_status: int
+    debate_id: Optional[UUID]
+    amount_usd: str
+    spend_by_kind: list[SpendKindOut]
+
+
+class UsageEventsOut(BaseModel):
+    period: str
+    limit: int
+    offset: int
+    events: list[UsageEventOut]
+
+
 # ---------- Adapters: DB dicts → internal Pydantic objects ----------
 # The AI generation and scoring functions in app.main were written against the
 # in-memory Debate/Message Pydantic classes (where motion is stored in `title`).
@@ -296,6 +342,9 @@ def _cost_after(bg: BackgroundTasks, auth: AuthContext) -> None:
 
 
 def _log(bg: BackgroundTasks, auth: AuthContext, endpoint: str, status_code: int, latency_ms: int) -> None:
+    # Read request_id now. The background task runs after the response, outside
+    # the request context, so it cannot look the id up later.
+    request_id = billing.current().request_id
     bg.add_task(
         log_usage,
         tenant_id=auth.tenant_id,
@@ -303,6 +352,7 @@ def _log(bg: BackgroundTasks, auth: AuthContext, endpoint: str, status_code: int
         endpoint=endpoint,
         response_status=status_code,
         latency_ms=latency_ms,
+        request_id=request_id,
     )
 
 
@@ -866,3 +916,64 @@ def submit_rebuttal_drill(
     )
     _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
     return out
+
+
+def _raise_usage(exc: Exception) -> None:
+    if isinstance(exc, partner_usage.InvalidPeriod):
+        raise HTTPException(400, str(exc))
+    if isinstance(exc, (partner_usage.UsageUnavailable, partner_usage.UsageIncomplete)):
+        raise HTTPException(503, str(exc))
+    raise exc
+
+
+@router.get("/usage", response_model=UsageOut)
+def get_usage(
+    background_tasks: BackgroundTasks,
+    auth: AuthContext = Depends(verify_api_key),
+    period: Optional[str] = Query(
+        default=None,
+        description="UTC month YYYY-MM, or all. Default: current month.",
+    ),
+):
+    """Statement for this tenant: amount due, request counts, spend by kind.
+
+    Reads stay open at the spend cap, same as fetching a debate already paid for.
+    amount_due_usd is the sum of stored vendor costs, not a fresh estimate.
+    """
+    start = time.monotonic()
+    endpoint = "GET /api/v1/usage"
+    try:
+        statement = partner_usage.build_statement(auth.tenant_id, period)
+    except (partner_usage.InvalidPeriod, partner_usage.UsageUnavailable, partner_usage.UsageIncomplete) as exc:
+        status_code = 400 if isinstance(exc, partner_usage.InvalidPeriod) else 503
+        _log(background_tasks, auth, endpoint, status_code, int((time.monotonic() - start) * 1000))
+        _raise_usage(exc)
+    _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
+    return statement
+
+
+@router.get("/usage/events", response_model=UsageEventsOut)
+def get_usage_events(
+    background_tasks: BackgroundTasks,
+    auth: AuthContext = Depends(verify_api_key),
+    period: Optional[str] = Query(
+        default=None,
+        description="UTC month YYYY-MM, or all. Default: current month.",
+    ),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+):
+    """One line per HTTP call, with that call's model charges summed.
+
+    Calls from before request ids were stamped are in the month total only.
+    """
+    start = time.monotonic()
+    endpoint = "GET /api/v1/usage/events"
+    try:
+        page = partner_usage.list_events(auth.tenant_id, period, limit=limit, offset=offset)
+    except (partner_usage.InvalidPeriod, partner_usage.UsageUnavailable, partner_usage.UsageIncomplete) as exc:
+        status_code = 400 if isinstance(exc, partner_usage.InvalidPeriod) else 503
+        _log(background_tasks, auth, endpoint, status_code, int((time.monotonic() - start) * 1000))
+        _raise_usage(exc)
+    _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
+    return page

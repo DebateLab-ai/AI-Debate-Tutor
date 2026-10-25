@@ -91,13 +91,21 @@ Exceeding the limit returns `429 Too Many Requests` with a `Retry-After` header 
 
 If you expect sustained higher throughput, ask us to raise the limit on your key.
 
+## Usage and charges
+
+You are billed at vendor cost, with no markup. `GET /api/v1/usage` is the statement for one UTC month, or for the whole account with `?period=all`. `amount_due_usd` is the sum of the cost we recorded on each model call in that window, to 8 decimal places. See the [usage reference](./reference.md#usage) for the response and for per-call lines.
+
+A retry that sends the same `Idempotency-Key` after a successful turn does not run the model again, so it shows up as a request with no additional charge.
+
+Debates are deleted after 7 days. The charges are not. A past `period` still returns what that month cost.
+
 ## Data retention
 
 Debates are deleted **7 days** after creation. This applies uniformly to every tenant. Cascade applies — when a debate is deleted, its messages and score are deleted with it.
 
 PDFs are generated on demand from the stored debate; we do not cache them. **After 7 days the `/report.pdf` endpoint returns `404`.** Plan to fetch and store the PDF on your side (or any debate data you want to keep) within the retention window.
 
-`api_usage` rows are retained indefinitely for billing and audit purposes. They contain no student content — only `tenant_id`, `api_key_id`, endpoint path, response status, and latency.
+`api_usage` rows are retained indefinitely for billing and audit purposes. They contain no student content — only `tenant_id`, `api_key_id`, endpoint path, response status, and latency. The cost rows behind `GET /api/v1/usage` are kept the same way. They record the charge, not the speech.
 
 If you have a regulatory need for shorter retention, contact us. We can configure a per-tenant override.
 

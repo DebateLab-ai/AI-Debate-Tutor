@@ -1,5 +1,6 @@
 import hashlib
 from dataclasses import dataclass
+from uuid import uuid4
 
 from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import APIKeyHeader
@@ -95,5 +96,8 @@ async def bind_billing_context(auth: AuthContext = Depends(verify_api_key)) -> A
     this at router level does not re-run the key lookup or double-count the rate
     limiter.
     """
-    billing.set_context(tenant_id=auth.tenant_id)
+    # request_id groups every model call this HTTP request makes into one
+    # partner usage line. Generated here, in the request's own context, so the
+    # endpoint thread inherits it. See the docstring above.
+    billing.set_context(tenant_id=auth.tenant_id, request_id=str(uuid4()))
     return auth
