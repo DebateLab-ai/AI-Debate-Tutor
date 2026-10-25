@@ -124,6 +124,17 @@ const TOPIC_CATEGORIES = {
   ],
 }
 
+// Shown inside the AI's placeholder bubble until the first chunk arrives.
+// Cycles "thinking." → "thinking.." → "thinking..." every 500ms.
+const ThinkingText = () => {
+  const [dots, setDots] = useState(1)
+  useEffect(() => {
+    const id = setInterval(() => setDots(d => (d % 3) + 1), 500)
+    return () => clearInterval(id)
+  }, [])
+  return <span className="thinking-text" aria-live="polite">thinking{'.'.repeat(dots)}</span>
+}
+
 function App() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -1252,7 +1263,11 @@ function App() {
                 </span>
                 <span className="message-round">Exchange {message.round_no}</span>
               </div>
-              <div className="message-content">{renderMarkdown(message.content)}</div>
+              <div className="message-content">
+                {message.speaker === 'assistant' && !message.content && String(message.id).startsWith('temp-')
+                  ? <ThinkingText />
+                  : renderMarkdown(message.content)}
+              </div>
             </div>
           ))}
           
