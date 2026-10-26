@@ -95,7 +95,7 @@ If you expect sustained higher throughput, ask us to raise the limit on your key
 
 You are billed at vendor cost, with no markup, for model calls on requests that succeed. A request that fails does not add a model charge. `GET /api/v1/usage` is the statement for one UTC month, or for the whole account with `?period=all`. `amount_due_usd` is the sum of the cost we recorded for each delivered model call in that window, to 8 decimal places. Money fields are decimal strings. See the [usage reference](./reference.md#usage) for the response and for per-call lines.
 
-A missing key, an invalid key, a revoked key, a disabled account, and a rate-limit rejection do not create a usage row. Every other response does. `errors` counts recorded responses with status 400 or higher.
+A missing key, an invalid key, a revoked key, a disabled account, and a rate-limit rejection do not create a usage row. Every other response does, and that response includes the call's id in the `X-Request-ID` header. The same value is `request_id` on `GET /api/v1/usage/events`. `errors` counts recorded responses with status 400 or higher.
 
 A retry that sends the same `Idempotency-Key` after a successful turn does not run the model again, so it shows up as a request with no additional charge.
 

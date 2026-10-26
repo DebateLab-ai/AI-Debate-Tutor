@@ -2,6 +2,8 @@
 
 All endpoints share the prefix `/api/v1/`. All require the `X-API-Key` header. All scope by your tenant.
 
+Every response that is recorded in usage includes an `X-Request-ID` header. The value is the `request_id` on that call's line in `GET /api/v1/usage/events`. Store it with your own call log and match on it later. A missing key, an invalid key, a revoked key, a disabled account, and a rate-limit rejection do not include the header, because those calls are not in the ledger. A retry after a successful turn gets a new id. Its usage line is `"0.00000000"`. The charge stays on the id from the first response.
+
 | Method | Path | Purpose |
 |---|---|---|
 | `POST` | `/api/v1/debates` | Create a new debate |
@@ -431,7 +433,7 @@ The same call with `?period=all` keeps every other field and sets `period` to `"
 
 `requests_with_call_id` counts only calls that have a per-call line. `amount_without_call_id_usd` is the part of `amount_due_usd` with no line in this window, including calls made before per-call lines existed. It is already inside the total. `unpriced_events` should be 0. A non-zero count means those calls are in the total at zero until we reprice them. `per_call_available` is true when per-call lines can be read.
 
-`GET /api/v1/usage/events` is the per-call ledger, newest first. It takes the same `period` values. Each line is one HTTP call made after per-call ids existed. `amount_usd` is every model charge that call produced, added together, and only charges inside the same window. A create, a read, a failed request, or a retry that sends the same `Idempotency-Key` after a successful turn is `"0.00000000"`. Calls from before per-call ids are not in this list.
+`GET /api/v1/usage/events` is the per-call ledger, newest first. It takes the same `period` values. Each line is one HTTP call made after per-call ids existed. `request_id` is the `X-Request-ID` from that call's response. `amount_usd` is every model charge that call produced, added together, and only charges inside the same window. A create, a read, a failed request, or a retry that sends the same `Idempotency-Key` after a successful turn is `"0.00000000"`. Calls from before per-call ids are not in this list.
 
 `limit` is 1–200 and defaults to 50. `offset` defaults to 0. Read further pages until a page comes back shorter than `limit`.
 

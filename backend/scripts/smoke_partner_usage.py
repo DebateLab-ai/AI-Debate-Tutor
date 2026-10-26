@@ -154,6 +154,41 @@ def hold_checks():
             [row["event_type"] for row in captured] == ["ai_speech"],
             "a failed two-pass attempt is dropped and the fallback is what gets billed",
         )
+
+        sent = []
+
+        async def drive(status_code, response_headers):
+            async def inner(scope, receive, send):
+                await send({
+                    "type": "http.response.start",
+                    "status": status_code,
+                    "headers": response_headers,
+                })
+                await send({"type": "http.response.body", "body": b"{}"})
+
+            async def capture(message):
+                sent.append(message)
+
+            sent.clear()
+            await usage.PartnerUsageMiddleware(inner)(scope, None, capture)
+
+        anyio.run(lambda: drive(201, [(b"content-type", b"application/json")]))
+        header = dict(sent[0]["headers"]).get(b"x-request-id")
+        check(header == b"11111111-1111-1111-1111-111111111111", "response carries the usage request id")
+        check(logs[-1]["request_id"] == header.decode("ascii"), "header matches the usage row")
+
+        anyio.run(lambda: drive(200, [(b"x-request-id", b"caller-supplied")]))
+        values = [value for key, value in sent[0]["headers"] if key.lower() == b"x-request-id"]
+        check(values == [b"11111111-1111-1111-1111-111111111111"], "our request id replaces any other value")
+
+        billing.set_context(tenant_id=None)
+        before = len(logs)
+        anyio.run(lambda: drive(401, []))
+        check(
+            not any(key.lower() == b"x-request-id" for key, _value in sent[0]["headers"]),
+            "auth rejection has no request id header",
+        )
+        check(len(logs) == before, "auth rejection still writes no usage row")
     finally:
         billing.discard()
         billing._insert = original_insert

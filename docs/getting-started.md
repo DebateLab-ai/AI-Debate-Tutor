@@ -21,6 +21,10 @@ curl https://api.debatelab.ai/api/v1/debates \
 
 A missing or invalid key returns `401 Unauthorized`.
 
+## Request id
+
+Responses that are recorded in usage include an `X-Request-ID` header. Save it with your own call record. It is the `request_id` on that call's line in `GET /api/v1/usage/events`, so you can match a charge without using the timestamp. A `401`, `403`, or `429` has no header, because those calls are not in the ledger.
+
 ## Your first call
 
 Create a debate.
