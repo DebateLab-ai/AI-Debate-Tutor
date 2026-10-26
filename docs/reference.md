@@ -11,8 +11,8 @@ All endpoints share the prefix `/api/v1/`. All require the `X-API-Key` header. A
 | `GET` | `/api/v1/debates/{id}` | Fetch a debate's full state |
 | `GET` | `/api/v1/debates` | List debates with filters |
 | `GET` | `/api/v1/debates/{id}/report.pdf` | Download the PDF report |
-| `GET` | `/api/v1/usage` | Month-to-date calls and amount due |
-| `GET` | `/api/v1/usage/events` | Per-call cost lines for that month |
+| `GET` | `/api/v1/usage` | Calls and amount due for a month, or all time |
+| `GET` | `/api/v1/usage/events` | Per-call cost lines for that window |
 | `POST` | `/api/v1/drills/rebuttal/start` | Generate a drill claim for the student to rebut |
 | `POST` | `/api/v1/drills/rebuttal/submit` | Score a drill rebuttal; get the next claim |
 
@@ -378,13 +378,20 @@ GET /api/v1/usage
 GET /api/v1/usage/events
 ```
 
-What you owe for one UTC month, or for the whole account. `amount_due_usd` is the sum of vendor cost for every model call we ran for you in that window, at cost pass-through. The figure is stored when the call happens, to 8 decimal places, and is not recomputed later.
+Usage is available on your existing API key. Send it as `X-API-Key` on every request.
 
-`period` is `YYYY-MM`, or `all`. Omit it for the current month. `period_end` is exclusive. For `all`, `period_start` is `null` and `period_end` is the time of the request, so the total is everything charged before that instant.
+Money fields are decimal strings, not JSON numbers. That includes `amount_due_usd`, `amount_usd`, `amount_without_call_id_usd`, and each `amount_usd` inside `spend_by_kind`. Parse them with a decimal type. A float can change the 8th decimal place.
+
+`GET /api/v1/usage` is the statement. `amount_due_usd` is the amount due for that window, in USD, to 8 decimal places. It is the vendor cost we recorded for each model call that the request delivered, with no markup. A model call that fails, and a request that does not succeed, are not recorded as charges. That number is the invoice.
+
+`period` chooses the window. All times are UTC.
+
+- Leave `period` off for the current month.
+- `period=YYYY-MM` is that month, including the current one. During October 2026, `?period=2026-10` returns the same window as leaving `period` off: from `2026-10-01T00:00:00Z` inclusive to `2026-11-01T00:00:00Z` exclusive. A future month returns 400.
+- `period=all` is every recorded charge up to this request. `period_start` is null. `period_end` is the UTC time of the request, and it is exclusive. A charge recorded at that exact instant waits for a later request.
 
 ```
 GET /api/v1/usage?period=2026-10
-GET /api/v1/usage?period=all
 ```
 
 ```json
@@ -397,30 +404,44 @@ GET /api/v1/usage?period=all
   "monthly_cap_usd": null,
   "unpriced_events": 0,
   "per_call_available": true,
-  "amount_without_call_id_usd": "0.00000000",
+  "amount_without_call_id_usd": "1.25000000",
   "requests": 140,
-  "requests_with_call_id": 140,
+  "requests_with_call_id": 120,
   "requests_by_endpoint": [
-    { "endpoint": "POST /api/v1/debates/{id}/turns", "count": 80, "errors": 1 }
+    { "endpoint": "POST /api/v1/debates/{id}/turns", "count": 80, "errors": 1 },
+    { "endpoint": "POST /api/v1/debates/{id}/finish", "count": 25, "errors": 0 },
+    { "endpoint": "POST /api/v1/debates", "count": 15, "errors": 0 },
+    { "endpoint": "GET /api/v1/debates/{id}", "count": 12, "errors": 0 },
+    { "endpoint": "GET /api/v1/debates", "count": 8, "errors": 0 }
   ],
   "spend_by_kind": [
     { "kind": "speech", "model_calls": 80, "amount_usd": "3.90000000" },
-    { "kind": "score", "model_calls": 20, "amount_usd": "0.38190000" },
-    { "kind": "moderation", "model_calls": 100, "amount_usd": "0.00000000" }
+    { "kind": "score", "model_calls": 20, "amount_usd": "0.38190000" }
   ]
 }
 ```
 
-| Field | Meaning |
-|---|---|
-| `amount_due_usd` | Amount due for this `period`. This is the invoice number. |
-| `monthly_cap_usd` | Your monthly cap, or `null` if you have none. The cap applies to the current month, including when `period` is `all`. |
-| `unpriced_events` | Model calls stored at zero because a price was missing. Non-zero means `amount_due_usd` is short until we reprice those rows. |
-| `requests` | HTTP calls, including reads and retries. |
-| `spend_by_kind` | The same money, split into `speech`, `score`, `drill`, and `moderation`. `model_calls` counts provider calls, so it is higher than `requests`. One student turn is one request and can be several model calls. |
-| `amount_without_call_id_usd` | Part of `amount_due_usd` that has no per-call line (calls from before line items existed). |
+The same call with `?period=all` keeps every other field and sets `period` to `"all"`, `period_start` to null, and `period_end` to the time of that request.
 
-`GET /api/v1/usage/events` pages those lines, newest first. `limit` is 1–200 (default 50). `offset` defaults to 0. Stop when a page comes back shorter than `limit`.
+`amount_due_usd` is the total for that period. It includes charges recorded before this usage API existed. In `spend_by_kind` the `amount_usd` values add up to `amount_due_usd`. One student turn is one HTTP request and can include several model calls, so `model_calls` can be higher than `requests`. Kinds are `speech`, `score`, `drill`, and `moderation`.
+
+`monthly_cap_usd` is your monthly cap, or null if you have none. The cap is always the current month, including when `period` is `all`.
+
+`requests` counts HTTP calls in the window, including calls from before per-call lines existed, plus reads and retries. In `requests_by_endpoint`, the `count` values add up to `requests`. `errors` counts recorded responses with status 400 or higher. A missing or invalid key (`401`), a revoked key or disabled account (`403`), and a rate-limit rejection (`429`) do not create a row, so they are not in `requests` or `errors`.
+
+`requests_with_call_id` counts only calls that have a per-call line. `amount_without_call_id_usd` is the part of `amount_due_usd` with no line in this window, including calls made before per-call lines existed. It is already inside the total. `unpriced_events` should be 0. A non-zero count means those calls are in the total at zero until we reprice them. `per_call_available` is true when per-call lines can be read.
+
+`GET /api/v1/usage/events` is the per-call ledger, newest first. It takes the same `period` values. Each line is one HTTP call made after per-call ids existed. `amount_usd` is every model charge that call produced, added together, and only charges inside the same window. A create, a read, a failed request, or a retry that sends the same `Idempotency-Key` after a successful turn is `"0.00000000"`. Calls from before per-call ids are not in this list.
+
+`limit` is 1–200 and defaults to 50. `offset` defaults to 0. Read further pages until a page comes back shorter than `limit`.
+
+For the same period, after every page:
+
+```
+sum of each line's amount_usd + amount_without_call_id_usd = amount_due_usd
+```
+
+Parse the strings as decimals before adding. One page is only part of the sum.
 
 ```json
 {
@@ -436,21 +457,15 @@ GET /api/v1/usage?period=all
       "debate_id": "8c2f...",
       "amount_usd": "0.02740000",
       "spend_by_kind": [
-        { "kind": "speech", "model_calls": 2, "amount_usd": "0.02740000" },
-        { "kind": "moderation", "model_calls": 1, "amount_usd": "0.00000000" }
+        { "kind": "speech", "model_calls": 2, "amount_usd": "0.02740000" }
       ]
     }
   ]
 }
 ```
 
-`amount_usd` on a line is every model charge that HTTP call produced, added together. A create, a read, or an idempotent retry of a call that already succeeded is `0.00000000`.
+Debates are deleted 7 days after they are created. The charge and the event line are kept. On an older line, `debate_id` can point at a debate that has already been deleted, and `GET /api/v1/debates/{id}` then returns 404.
 
-Charges in `amount_without_call_id_usd` are not in this list. Add the lines yourself only if you need a cross-check. The month total is already the full sum.
+Both reads count toward the 15 requests per minute limit. They stay available if a monthly cap is reached, so you can still see what you owe.
 
-Both endpoints count toward the rate limit. Neither is blocked when the monthly cap is reached, so you can still read what you owe.
-
-Common errors:
-
-- `400` — `period` is not `YYYY-MM` or `all`, or the month is after the current UTC month
-- `503` — the ledger could not be read completely. We return this instead of a total that is short. Retry.
+A bad period returns 400. A missing or invalid key returns 401. If the ledger cannot be read completely, the response is 503 rather than a short total. Retry that.

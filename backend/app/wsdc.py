@@ -310,7 +310,7 @@ def generate_wsdc_speech(
         print(f"[WSDC] Pass 1 OK (format={format}) — keys: {list(speech_json.keys())}")
     except Exception as e:
         print(f"[WSDC] Pass 1 failed: {e}")
-        return "[Error generating speech structure. Please try again.]"
+        raise
 
     try:
         result = _run_pass2(speech_json, difficulty, format)
@@ -318,4 +318,4 @@ def generate_wsdc_speech(
         return result
     except Exception as e:
         print(f"[WSDC] Pass 2 failed: {e}")
-        return "[Error polishing speech. Please try again.]"
+        raise

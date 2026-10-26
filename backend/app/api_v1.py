@@ -11,8 +11,7 @@ inside endpoint bodies (avoids a circular import: main mounts this router).
 from __future__ import annotations
 
 import json
-import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Literal, Optional
 from uuid import UUID
 
@@ -21,7 +20,6 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.auth import AuthContext, bind_billing_context, verify_api_key
-from app.usage import log_usage
 from app import debates_store
 from app.safety import assert_input_safe
 from app import billing
@@ -173,6 +171,23 @@ class RebuttalDrillScoreOut(BaseModel):
     weakness_type: Optional[WeaknessType] = None
 
 
+def _utc_z(value: datetime) -> str:
+    """UTC instant with a Z suffix, as in the usage spec."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    else:
+        value = value.astimezone(timezone.utc)
+    text = value.isoformat()
+    if text.endswith("+00:00"):
+        return text[:-6] + "Z"
+    return text
+
+
+class _UsageJson(BaseModel):
+    class Config:
+        json_encoders = {datetime: _utc_z}
+
+
 class SpendKindOut(BaseModel):
     kind: str
     model_calls: int
@@ -185,7 +200,7 @@ class EndpointUsageOut(BaseModel):
     errors: int
 
 
-class UsageOut(BaseModel):
+class UsageOut(_UsageJson):
     period: str
     period_start: Optional[datetime]
     period_end: datetime
@@ -194,14 +209,14 @@ class UsageOut(BaseModel):
     monthly_cap_usd: Optional[str]
     unpriced_events: int
     per_call_available: bool
-    amount_without_call_id_usd: Optional[str]
+    amount_without_call_id_usd: str
     requests: int
     requests_with_call_id: int
     requests_by_endpoint: list[EndpointUsageOut]
     spend_by_kind: list[SpendKindOut]
 
 
-class UsageEventOut(BaseModel):
+class UsageEventOut(_UsageJson):
     request_id: UUID
     created_at: datetime
     endpoint: str
@@ -211,7 +226,7 @@ class UsageEventOut(BaseModel):
     spend_by_kind: list[SpendKindOut]
 
 
-class UsageEventsOut(BaseModel):
+class UsageEventsOut(_UsageJson):
     period: str
     limit: int
     offset: int
@@ -341,21 +356,6 @@ def _cost_after(bg: BackgroundTasks, auth: AuthContext) -> None:
     bg.add_task(spendcap.check_thresholds_and_alert, auth.tenant_id)
 
 
-def _log(bg: BackgroundTasks, auth: AuthContext, endpoint: str, status_code: int, latency_ms: int) -> None:
-    # Read request_id now. The background task runs after the response, outside
-    # the request context, so it cannot look the id up later.
-    request_id = billing.current().request_id
-    bg.add_task(
-        log_usage,
-        tenant_id=auth.tenant_id,
-        api_key_id=auth.api_key_id,
-        endpoint=endpoint,
-        response_status=status_code,
-        latency_ms=latency_ms,
-        request_id=request_id,
-    )
-
-
 def _normalize_idempotency_key(raw: Optional[str]) -> Optional[str]:
     if raw is None:
         return None
@@ -471,14 +471,12 @@ def create_debate(
     background_tasks: BackgroundTasks,
     auth: AuthContext = Depends(verify_api_key),
 ):
-    start = time.monotonic()
     # Guarded so a capped tenant fails BEFORE a student writes a speech they
     # cannot submit. Creating costs nothing itself, but handing back a debate
     # that immediately 402s on the first turn is worse UX than refusing here.
     _cost_guard(auth)
     _cost_after(background_tasks, auth)
     if body.mode in ("wsdc", "ap") and body.num_rounds > 3:
-        _log(background_tasks, auth, "POST /api/v1/debates", 400, int((time.monotonic() - start) * 1000))
         raise HTTPException(400, "Parliamentary modes support up to 3 rounds")
 
     try:
@@ -493,10 +491,8 @@ def create_debate(
             metadata=body.metadata,
         )
     except debates_store.MetadataError as e:
-        _log(background_tasks, auth, "POST /api/v1/debates", 400, int((time.monotonic() - start) * 1000))
         raise HTTPException(400, str(e))
 
-    _log(background_tasks, auth, "POST /api/v1/debates", 201, int((time.monotonic() - start) * 1000))
     return _debate_out(debate)
 
 
@@ -508,7 +504,6 @@ def open_debate(
     idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ):
     """Generate the AI opening speech when starter is assistant (next_speaker=assistant)."""
-    start = time.monotonic()
     endpoint = "POST /api/v1/debates/{id}/open"
     _cost_guard(auth)
     _cost_after(background_tasks, auth)
@@ -517,18 +512,14 @@ def open_debate(
     cached = _idempotency_cached(auth, idem_key, endpoint)
     if cached:
         status_code, body = cached
-        _log(background_tasks, auth, endpoint, status_code, int((time.monotonic() - start) * 1000))
         return OpenOut(**body)
 
     debate = debates_store.get_debate(tenant_id=auth.tenant_id, debate_id=debate_id)
     if not debate:
-        _log(background_tasks, auth, endpoint, 404, int((time.monotonic() - start) * 1000))
         raise HTTPException(404, "Debate not found")
     if debate["status"] != "active":
-        _log(background_tasks, auth, endpoint, 400, int((time.monotonic() - start) * 1000))
         raise HTTPException(400, f"Debate is {debate['status']}")
     if debate["next_speaker"] != "assistant":
-        _log(background_tasks, auth, endpoint, 409, int((time.monotonic() - start) * 1000))
         raise HTTPException(
             409,
             "It is not the assistant's turn to open. Call POST /turns when next_speaker is user.",
@@ -539,7 +530,6 @@ def open_debate(
         ai_text = _generate_assistant_text(debate_for_ai, auth.tenant_id)
     except Exception as e:
         print(f"[api_v1] AI opening failed: {type(e).__name__}: {e}")
-        _log(background_tasks, auth, endpoint, 502, int((time.monotonic() - start) * 1000))
         raise HTTPException(502, "AI generation temporarily unavailable. Please retry.")
 
     ai_msg, final_round, final_next, final_status = _complete_assistant_turn(
@@ -556,7 +546,6 @@ def open_debate(
         status=final_status,
     )
     _save_idempotency(auth, idem_key, endpoint, 200, out)
-    _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
     return out
 
 
@@ -568,7 +557,6 @@ def submit_turn(
     auth: AuthContext = Depends(verify_api_key),
     idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ):
-    start = time.monotonic()
     endpoint = "POST /api/v1/debates/{id}/turns"
     _cost_guard(auth)
     _cost_after(background_tasks, auth)
@@ -577,18 +565,14 @@ def submit_turn(
     cached = _idempotency_cached(auth, idem_key, endpoint)
     if cached:
         status_code, body_dict = cached
-        _log(background_tasks, auth, endpoint, status_code, int((time.monotonic() - start) * 1000))
         return TurnOut(**body_dict)
 
     debate = debates_store.get_debate(tenant_id=auth.tenant_id, debate_id=debate_id)
     if not debate:
-        _log(background_tasks, auth, endpoint, 404, int((time.monotonic() - start) * 1000))
         raise HTTPException(404, "Debate not found")
     if debate["status"] != "active":
-        _log(background_tasks, auth, endpoint, 400, int((time.monotonic() - start) * 1000))
         raise HTTPException(400, f"Debate is {debate['status']}")
     if debate["next_speaker"] != "user":
-        _log(background_tasks, auth, endpoint, 409, int((time.monotonic() - start) * 1000))
         hint = (
             "Call POST /api/v1/debates/{id}/open first."
             if debate["next_speaker"] == "assistant"
@@ -630,7 +614,6 @@ def submit_turn(
             status=new_status,
         )
         _save_idempotency(auth, idem_key, endpoint, 200, out)
-        _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
         return out
 
     debate_for_ai = {**debate, "current_round": new_round, "next_speaker": "assistant"}
@@ -643,7 +626,6 @@ def submit_turn(
             message_id=user_msg["id"],
         )
         print(f"[api_v1] AI generation failed: {type(e).__name__}: {e}")
-        _log(background_tasks, auth, endpoint, 502, int((time.monotonic() - start) * 1000))
         raise HTTPException(502, "AI generation temporarily unavailable. Please retry.")
 
     try:
@@ -659,7 +641,6 @@ def submit_turn(
             message_id=user_msg["id"],
         )
         print(f"[api_v1] Failed to persist AI turn: {type(e).__name__}: {e}")
-        _log(background_tasks, auth, endpoint, 502, int((time.monotonic() - start) * 1000))
         raise HTTPException(502, "AI generation temporarily unavailable. Please retry.")
 
     out = TurnOut(
@@ -671,7 +652,6 @@ def submit_turn(
         status=final_status,
     )
     _save_idempotency(auth, idem_key, endpoint, 200, out)
-    _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
     return out
 
 
@@ -681,8 +661,6 @@ def finish_debate(
     background_tasks: BackgroundTasks,
     auth: AuthContext = Depends(verify_api_key),
 ):
-    start = time.monotonic()
-    endpoint = "POST /api/v1/debates/{id}/finish"
     # DELIBERATELY NOT _cost_guard'd. Scoring is the cheapest call (~$0.006 vs
     # ~$0.027 a speech), it is terminal, and it is idempotent — a repeat returns
     # the cached score without re-scoring, so the spend it can add is bounded by
@@ -693,17 +671,14 @@ def finish_debate(
 
     debate = debates_store.get_debate(tenant_id=auth.tenant_id, debate_id=debate_id)
     if not debate:
-        _log(background_tasks, auth, endpoint, 404, int((time.monotonic() - start) * 1000))
         raise HTTPException(404, "Debate not found")
 
     existing_score = debates_store.get_score(tenant_id=auth.tenant_id, debate_id=debate["id"])
     if existing_score:
-        _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
         return _score_out(existing_score)
 
     msgs = debates_store.list_messages(tenant_id=auth.tenant_id, debate_id=debate["id"])
     if not msgs:
-        _log(background_tasks, auth, endpoint, 400, int((time.monotonic() - start) * 1000))
         raise HTTPException(400, "Cannot score a debate with no turns")
 
     from app.main import compute_debate_score  # lazy
@@ -736,29 +711,22 @@ def finish_debate(
             status="completed",
         )
 
-    _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
     return _score_out(saved)
 
 
 @router.get("/debates/{debate_id}", response_model=DebateWithMessagesOut)
 def get_debate(
     debate_id: UUID,
-    background_tasks: BackgroundTasks,
     auth: AuthContext = Depends(verify_api_key),
 ):
-    start = time.monotonic()
-    endpoint = "GET /api/v1/debates/{id}"
-
     debate = debates_store.get_debate(tenant_id=auth.tenant_id, debate_id=debate_id)
     if not debate:
-        _log(background_tasks, auth, endpoint, 404, int((time.monotonic() - start) * 1000))
         raise HTTPException(404, "Debate not found")
 
     msgs = debates_store.list_messages(tenant_id=auth.tenant_id, debate_id=debate["id"])
     score = debates_store.get_score(tenant_id=auth.tenant_id, debate_id=debate["id"])
 
     out = _debate_out(debate)
-    _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
     return DebateWithMessagesOut(
         **out.dict(),
         messages=[_message_out(m) for m in msgs],
@@ -769,7 +737,6 @@ def get_debate(
 @router.get("/debates/{debate_id}/report.pdf", responses={200: {"content": {"application/pdf": {}}}})
 def get_debate_report(
     debate_id: UUID,
-    background_tasks: BackgroundTasks,
     auth: AuthContext = Depends(verify_api_key),
 ):
     """Render the debate report as a PDF. Two sections: feedback + transcript.
@@ -777,17 +744,12 @@ def get_debate_report(
     400 if the debate hasn't been scored yet (nothing to report on).
     503 if the PDF renderer can't load (missing system deps in production).
     """
-    start = time.monotonic()
-    endpoint = "GET /api/v1/debates/{id}/report.pdf"
-
     debate = debates_store.get_debate(tenant_id=auth.tenant_id, debate_id=debate_id)
     if not debate:
-        _log(background_tasks, auth, endpoint, 404, int((time.monotonic() - start) * 1000))
         raise HTTPException(404, "Debate not found")
 
     score = debates_store.get_score(tenant_id=auth.tenant_id, debate_id=debate["id"])
     if not score:
-        _log(background_tasks, auth, endpoint, 400, int((time.monotonic() - start) * 1000))
         raise HTTPException(400, "Debate must be scored before a report can be generated. Call /finish first.")
 
     messages = debates_store.list_messages(tenant_id=auth.tenant_id, debate_id=debate["id"])
@@ -797,11 +759,9 @@ def get_debate_report(
         pdf_bytes = render_pdf(debate=debate, messages=messages, score=score)
     except Exception as e:
         print(f"[api_v1] PDF render failed: {type(e).__name__}: {e}")
-        _log(background_tasks, auth, endpoint, 503, int((time.monotonic() - start) * 1000))
         raise HTTPException(503, "PDF generation is temporarily unavailable.")
 
     filename = f"debate_report_{str(debate['id'])[:8]}.pdf"
-    _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -811,22 +771,17 @@ def get_debate_report(
 
 @router.get("/debates", response_model=list[DebateOut])
 def list_debates(
-    background_tasks: BackgroundTasks,
     auth: AuthContext = Depends(verify_api_key),
     external_user_id: Optional[str] = Query(default=None),
     since: Optional[datetime] = Query(default=None, description="ISO-8601; returns debates created at-or-after this time"),
     limit: int = Query(default=50, ge=1, le=200),
 ):
-    start = time.monotonic()
-    endpoint = "GET /api/v1/debates"
-
     rows = debates_store.list_debates(
         tenant_id=auth.tenant_id,
         external_user_id=external_user_id,
         since=since,
         limit=limit,
     )
-    _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
     return [_debate_out(r) for r in rows]
 
 
@@ -841,8 +796,6 @@ def start_rebuttal_drill(
     Mirrors the website's POST /v1/drills/rebuttal/start. Typical flow after a debate:
     read weakness_type from /finish, pass it here, then loop /submit using next_claim.
     """
-    start = time.monotonic()
-    endpoint = "POST /api/v1/drills/rebuttal/start"
     _cost_guard(auth)
     _cost_after(background_tasks, auth)
 
@@ -853,9 +806,10 @@ def start_rebuttal_drill(
     claim_position: ClaimPosition = "against" if body.user_position == "for" else "for"
     try:
         claim = generate_drill_claim(body.motion, claim_position, body.weakness_type)
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[api_v1] drill claim generation failed: {type(e).__name__}: {e}")
-        _log(background_tasks, auth, endpoint, 502, int((time.monotonic() - start) * 1000))
         raise HTTPException(502, "Drill claim generation temporarily unavailable. Please retry.")
 
     out = RebuttalDrillClaimOut(
@@ -863,7 +817,6 @@ def start_rebuttal_drill(
         claim_position=claim_position,
         weakness_type=body.weakness_type,
     )
-    _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
     return out
 
 
@@ -877,8 +830,6 @@ def submit_rebuttal_drill(
 
     Pass the claim fields from /start (or the previous submit's next_claim) on each call.
     """
-    start = time.monotonic()
-    endpoint = "POST /api/v1/drills/rebuttal/submit"
     _cost_guard(auth)
     _cost_after(background_tasks, auth)
 
@@ -899,7 +850,6 @@ def submit_rebuttal_drill(
         raise
     except Exception as e:
         print(f"[api_v1] drill scoring failed: {type(e).__name__}: {e}")
-        _log(background_tasks, auth, endpoint, 502, int((time.monotonic() - start) * 1000))
         raise HTTPException(502, "Drill scoring temporarily unavailable. Please retry.")
 
     out = RebuttalDrillScoreOut(
@@ -914,7 +864,6 @@ def submit_rebuttal_drill(
         next_claim_position=body.claim_position,
         weakness_type=body.weakness_type,
     )
-    _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
     return out
 
 
@@ -928,7 +877,6 @@ def _raise_usage(exc: Exception) -> None:
 
 @router.get("/usage", response_model=UsageOut)
 def get_usage(
-    background_tasks: BackgroundTasks,
     auth: AuthContext = Depends(verify_api_key),
     period: Optional[str] = Query(
         default=None,
@@ -940,21 +888,15 @@ def get_usage(
     Reads stay open at the spend cap, same as fetching a debate already paid for.
     amount_due_usd is the sum of stored vendor costs, not a fresh estimate.
     """
-    start = time.monotonic()
-    endpoint = "GET /api/v1/usage"
     try:
         statement = partner_usage.build_statement(auth.tenant_id, period)
     except (partner_usage.InvalidPeriod, partner_usage.UsageUnavailable, partner_usage.UsageIncomplete) as exc:
-        status_code = 400 if isinstance(exc, partner_usage.InvalidPeriod) else 503
-        _log(background_tasks, auth, endpoint, status_code, int((time.monotonic() - start) * 1000))
         _raise_usage(exc)
-    _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
     return statement
 
 
 @router.get("/usage/events", response_model=UsageEventsOut)
 def get_usage_events(
-    background_tasks: BackgroundTasks,
     auth: AuthContext = Depends(verify_api_key),
     period: Optional[str] = Query(
         default=None,
@@ -967,13 +909,8 @@ def get_usage_events(
 
     Calls from before request ids were stamped are in the month total only.
     """
-    start = time.monotonic()
-    endpoint = "GET /api/v1/usage/events"
     try:
         page = partner_usage.list_events(auth.tenant_id, period, limit=limit, offset=offset)
     except (partner_usage.InvalidPeriod, partner_usage.UsageUnavailable, partner_usage.UsageIncomplete) as exc:
-        status_code = 400 if isinstance(exc, partner_usage.InvalidPeriod) else 503
-        _log(background_tasks, auth, endpoint, status_code, int((time.monotonic() - start) * 1000))
         _raise_usage(exc)
-    _log(background_tasks, auth, endpoint, 200, int((time.monotonic() - start) * 1000))
     return page

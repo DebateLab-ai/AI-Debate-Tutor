@@ -92,6 +92,7 @@ def main(with_ai: bool) -> None:
             usage={"input_tokens": 10_000, "output_tokens": 1_000,
                    "cache_read_tokens": 0, "cache_write_tokens": 0},
         )
+        billing.commit()
         billing.reset_context(tok)
 
         rows = rows_for(tenant_id)
@@ -112,6 +113,7 @@ def main(with_ai: bool) -> None:
             usage={"input_tokens": 500, "output_tokens": 100,
                    "cache_read_tokens": 0, "cache_write_tokens": 0},
         )
+        billing.commit()
         billing.reset_context(tok)
         unknown = [x for x in rows_for(tenant_id) if x["model"] == "gpt-nonexistent-9"]
         check(len(unknown) == 1, "unpriced model still produces a ledger row")

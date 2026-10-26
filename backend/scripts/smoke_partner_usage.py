@@ -52,6 +52,115 @@ def check(c, m):
     ok(m) if c else fail(m)
 
 
+def hold_checks():
+    """Partner charges wait for a successful response. A worker thread must not hide them."""
+    import time
+    import anyio
+
+    from app import billing, usage
+
+    captured = []
+    logs = []
+    original_insert = billing._insert
+    original_log = usage.log_usage
+    billing._insert = lambda row: captured.append(dict(row))
+    usage.log_usage = lambda **kw: logs.append(kw)
+
+    scope = {
+        "type": "http",
+        "path": "/api/v1/debates/x/turns",
+        "method": "POST",
+        "route": type("R", (), {"path": "/api/v1/debates/{debate_id}/turns"})(),
+    }
+
+    def work():
+        billing.set_debate("debate-1")
+        billing.record_model_call(
+            provider="openai",
+            model="gpt-4o-mini",
+            event_type="ai_speech",
+            usage={"input_tokens": 10, "output_tokens": 5},
+        )
+
+    token = billing.set_context(
+        tenant_id="t-hold",
+        request_id="11111111-1111-1111-1111-111111111111",
+        api_key_id="k-hold",
+    )
+    try:
+        anyio.run(lambda: anyio.to_thread.run_sync(work))
+        check(len(billing.current().pending) == 1, "held charge is visible after the worker thread")
+        check(billing.current().pending[0].get("debate_id") == "debate-1", "debate id is on the held row")
+        check(billing.current().pending[0].get("created_at"), "held charge is stamped with the request start")
+        check(captured == [], "a held charge is not inserted before the response")
+
+        usage.settle_partner_request(scope, 502, time.perf_counter())
+        check(captured == [] and billing.current().pending == [], "a 502 drops the charge")
+        check(logs and logs[-1]["response_status"] == 502, "a 502 is still a usage row")
+        check(logs[-1]["endpoint"] == "POST /api/v1/debates/{id}/turns", "endpoint label uses {id}")
+        check(logs[-1]["request_id"] == "11111111-1111-1111-1111-111111111111", "usage row keeps the request id")
+        check(logs[-1]["created_at"] == billing.current().started_at, "usage row uses the same timestamp as the charge")
+
+        logs.clear()
+        anyio.run(lambda: anyio.to_thread.run_sync(work))
+        billing.record_model_call(
+            provider="anthropic",
+            model="claude-haiku-4-5",
+            event_type="score",
+            usage={"input_tokens": 4, "output_tokens": 2},
+        )
+        billing.discard_last()
+        usage.settle_partner_request(scope, 200, time.perf_counter())
+        check(len(captured) == 1 and captured[0]["event_type"] == "ai_speech",
+              "a rejected model attempt is not billed when the request succeeds")
+        check(logs[-1]["response_status"] == 200, "a success is a usage row")
+
+        captured.clear()
+        logs.clear()
+        billing.record_model_call(
+            provider="openai",
+            model="gpt-4o-mini",
+            event_type="moderation",
+            usage={"input_tokens": 0, "output_tokens": 0},
+        )
+        usage.settle_partner_request(scope, 401, time.perf_counter())
+        check(captured == [] and logs == [], "auth rejection creates no charge and no usage row")
+
+        billing.record_model_call(
+            provider="openai",
+            model="gpt-4o-mini",
+            event_type="moderation",
+            usage={"input_tokens": 0, "output_tokens": 0},
+        )
+        usage.settle_partner_request(scope, 429, time.perf_counter())
+        check(captured == [] and logs == [], "rate limiting creates no charge and no usage row")
+
+        mark = billing.checkpoint()
+        billing.record_model_call(
+            provider="anthropic",
+            model="claude-haiku-4-5",
+            event_type="ai_speech_pass1",
+            usage={"input_tokens": 8, "output_tokens": 4},
+        )
+        billing.rollback(mark)
+        billing.record_model_call(
+            provider="openai",
+            model="gpt-4o-mini",
+            event_type="ai_speech",
+            usage={"input_tokens": 8, "output_tokens": 4},
+        )
+        usage.settle_partner_request(scope, 200, time.perf_counter())
+        check(
+            [row["event_type"] for row in captured] == ["ai_speech"],
+            "a failed two-pass attempt is dropped and the fallback is what gets billed",
+        )
+    finally:
+        billing.discard()
+        billing._insert = original_insert
+        usage.log_usage = original_log
+        billing.reset_context(token)
+
+
 def pure_checks():
     """No database. Pins the addition and the partner-facing kind names."""
     check(
@@ -89,6 +198,36 @@ def pure_checks():
     check(statement["requests"] == 2 and statement["requests_with_call_id"] == 1, "request counts split stamped vs all")
     errors = {row["endpoint"]: row["errors"] for row in statement["requests_by_endpoint"]}
     check(errors["POST /api/v1/debates"] == 1, "4xx counted as errors")
+    kind_sum = sum((Decimal(row["amount_usd"]) for row in statement["spend_by_kind"]), Decimal(0))
+    check(kind_sum == Decimal(statement["amount_due_usd"]), "spend_by_kind adds up to the amount due")
+
+    orphan = partner_usage.statement_from_rows(
+        period="2026-10",
+        start=start,
+        end=end,
+        cap_usd=None,
+        per_call_available=True,
+        cost_rows=[
+            {"event_type": "score", "vendor_cost_usd": "0.50000000", "request_id": "in-window", "needs_repricing": False},
+            {"event_type": "ai_speech", "vendor_cost_usd": "0.25000000", "request_id": "other-month", "needs_repricing": False},
+        ],
+        usage_rows=[
+            {"endpoint": "POST /api/v1/debates/{id}/finish", "response_status": 200, "request_id": "in-window"},
+            {"endpoint": "POST /api/v1/debates/{id}/turns", "response_status": 502, "request_id": "failed"},
+        ],
+    )
+    check(orphan["amount_due_usd"] == "0.75000000", "orphan charge stays in the total")
+    check(orphan["amount_without_call_id_usd"] == "0.25000000",
+          "a stamped charge with no line in this window is the unlinked remainder")
+    check(orphan["requests"] == 2, "a failed request still counts")
+    failed = {row["endpoint"]: row["errors"] for row in orphan["requests_by_endpoint"]}
+    check(failed["POST /api/v1/debates/{id}/turns"] == 1, "502 counts as an error")
+    check(
+        Decimal("0.50000000") + Decimal(orphan["amount_without_call_id_usd"]) == Decimal(orphan["amount_due_usd"]),
+        "linked lines plus the unlinked remainder equal the amount due",
+    )
+
+    hold_checks()
 
     try:
         partner_usage.parse_period("2026-13")
@@ -235,7 +374,8 @@ def database_checks():
                   "event lines plus the unstamped remainder equal the amount due")
         else:
             check(statement["per_call_available"] is False, "lines reported unavailable without the column")
-            check(statement["amount_without_call_id_usd"] is None, "unstamped split is omitted until the column exists")
+            check(statement["amount_without_call_id_usd"] == statement["amount_due_usd"],
+                  "without per-call ids the whole total is the unlinked remainder")
 
         hdr = {"X-API-Key": a_key}
         missing = client.get("/api/v1/usage")
