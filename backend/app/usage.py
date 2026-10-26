@@ -74,6 +74,23 @@ def endpoint_label(scope: dict[str, Any]) -> str:
     return f"{method} {path}"
 
 
+def attach_request_id(message: dict[str, Any], request_id: str | None) -> dict[str, Any]:
+    """Put this call's usage id on the response, once.
+
+    The value is the request_id later returned by GET /api/v1/usage/events.
+    Auth and rate-limit rejections have no id, because they are not usage rows.
+    """
+    if message.get("type") != "http.response.start" or not request_id:
+        return message
+    headers = [
+        (key, value)
+        for key, value in (message.get("headers") or [])
+        if key.lower() != b"x-request-id"
+    ]
+    headers.append((b"x-request-id", request_id.encode("ascii")))
+    return {**message, "headers": headers}
+
+
 def settle_partner_request(scope: dict[str, Any], status_code: int, started: float) -> None:
     """Commit or drop charges, then log the call. Never raises."""
     path = str(scope.get("path") or "")
@@ -127,6 +144,7 @@ class PartnerUsageMiddleware:
         async def send_wrapper(message):
             if message["type"] == "http.response.start":
                 status["code"] = message["status"]
+                message = attach_request_id(message, billing.current().request_id)
             await send(message)
 
         try:
