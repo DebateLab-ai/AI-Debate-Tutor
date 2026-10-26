@@ -22,9 +22,9 @@ from app.response import SimpleRAG, generate_debate_with_coach_loop, generate_re
 from app.wsdc import generate_wsdc_speech
 
 # Third-party API
-from fastapi import Depends, BackgroundTasks
-from app.auth import verify_api_key, AuthContext
-from app.usage import log_usage
+from fastapi import Depends
+from app.auth import bind_billing_context, AuthContext
+from app.usage import PartnerUsageMiddleware
 from app.safety import assert_input_safe, screen_output, SAFETY_PREAMBLE
 from app.difficulty import Difficulty, DEFAULT_DIFFICULTY, get_config as get_difficulty_config, apply_score_floor
 from app import billing
@@ -189,6 +189,10 @@ else:
     CORS_ORIGINS = list(dict.fromkeys(origins_list + default_origins))
 
 print(f"[CORS] Allowing origins: {CORS_ORIGINS}")
+
+# Added before CORS, so CORS stays outermost and preflight never reaches here.
+# Partner charges commit here, and the usage row is written here, including errors.
+app.add_middleware(PartnerUsageMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -498,21 +502,8 @@ class EvidenceScore(BaseModel):
 # ---------- Third-Party API (v1) ----------
 
 @app.get("/api/v1/ping")
-def api_ping(
-    background_tasks: BackgroundTasks,
-    auth: AuthContext = Depends(verify_api_key),
-):
-    start = time.monotonic()
-    latency = int((time.monotonic() - start) * 1000)
-    background_tasks.add_task(
-        log_usage,
-        tenant_id=auth.tenant_id,
-        api_key_id=auth.api_key_id,
-        endpoint="/api/v1/ping",
-        response_status=200,
-        latency_ms=latency,
-        request_id=str(uuid4()),
-    )
+def api_ping(auth: AuthContext = Depends(bind_billing_context)):
+    # Usage row is written by PartnerUsageMiddleware, same as the other partner routes.
     return {"status": "ok", "tenant_id": auth.tenant_id}
 
 
@@ -582,6 +573,7 @@ def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
         opponent_messages = [m for m in messages if m.speaker != "assistant"]
         is_rebuttal = len(opponent_messages) > 0
         opponent_speech = opponent_messages[-1].content if is_rebuttal else None
+        mark = billing.checkpoint()
         try:
             return generate_wsdc_speech(
                 rag=picked_rag,
@@ -595,6 +587,8 @@ def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
                 min_score=cfg.rag_min_score,
             )
         except Exception as e:
+            # The failed attempt is not a charge, even if a later fallback succeeds.
+            billing.rollback(mark)
             print(f"[WSDC] Pipeline failed: {e}, falling back to basic generation")
 
     # Beginner skips RAG so the prompt addendum governs.
@@ -606,6 +600,7 @@ def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
         opponent_messages = [m for m in messages if m.speaker != "assistant"]
         if opponent_messages:
             last_opponent = opponent_messages[-1]
+            mark = billing.checkpoint()
             try:
                 result = generate_rebuttal_speech(
                     rag=picked_rag,
@@ -622,11 +617,13 @@ def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
                 )
                 return result["rebuttal_speech"]
             except Exception as e:
+                billing.rollback(mark)
                 print(f"[RAG] Rebuttal generation failed: {e}, falling back to basic generation")
 
     # If this is the first turn and we have RAG (parliamentary mode)
     if use_rag and len(messages) == 0:
         side = "Government" if debate.starter == "assistant" else "Opposition"
+        mark = billing.checkpoint()
         try:
             result = generate_debate_with_coach_loop(
                 rag=picked_rag,
@@ -644,6 +641,7 @@ def generate_ai_turn_text(debate: Debate, messages: List[Message]) -> str:
             )
             return result["initial_speech"]
         except Exception as e:
+            billing.rollback(mark)
             print(f"[RAG] Speech generation failed: {e}, falling back to basic generation")
 
     # Fallback: use mode-appropriate prompts
@@ -794,12 +792,13 @@ Compelling, rigorous, well-structured."""
             # Strip any [Round X · ASSISTANT] or [Round X · USER] tags that the AI might have included
             ai_response = re.sub(r'\[Round \d+ · (ASSISTANT|USER)\]\s*', '', ai_response, flags=re.IGNORECASE)
             return ai_response.strip()
+        except HTTPException:
+            raise
         except Exception as e:
             print(f"[ERROR] OpenAI API call failed: {type(e).__name__}: {e}")
-            # fall back to stub
+            raise HTTPException(502, "AI generation temporarily unavailable. Please retry.") from e
 
-    # Stub output for local dev without API key
-    return f"(AI {debate.next_speaker} R{debate.current_round}) Brief, signposted response."
+    raise HTTPException(503, "AI generation temporarily unavailable. Please retry.")
 
 def transcribe_with_whisper(audio_bytes: bytes, filename: str = "audio.wav") -> str:
     if not client:
@@ -835,6 +834,7 @@ def _call_scoring_llm(system_prompt: str, convo: list[dict], final_user_msg: str
     """
     # Anthropic-first path. Skip outright if no key, so we don't burn latency.
     if os.getenv("ANTHROPIC_API_KEY") and not _SCORING_MODEL_OVERRIDE.startswith("gpt"):
+        kept = False
         try:
             from app.wsdc import _anthropic  # reuses the shared client
             # Anthropic needs the transcript as one user message (no system/user
@@ -848,7 +848,7 @@ def _call_scoring_llm(system_prompt: str, convo: list[dict], final_user_msg: str
                 system=system_prompt,
                 messages=[{"role": "user", "content": anth_user}],
             )
-            billing.record_anthropic(resp, model=_SCORING_HAIKU, event_type="score")
+            kept = billing.record_anthropic(resp, model=_SCORING_HAIKU, event_type="score")
             raw = resp.content[0].text.strip()
             # Anthropic doesn't have a JSON mode; strip ``` fences if present.
             raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
@@ -859,6 +859,9 @@ def _call_scoring_llm(system_prompt: str, convo: list[dict], final_user_msg: str
             print(f"[scoring] Anthropic Haiku scored OK ({len(raw)} chars)")
             return raw
         except Exception as e:
+            # The Haiku response was not usable. Do not bill it when GPT scores instead.
+            if kept:
+                billing.discard_last()
             print(f"[scoring] Anthropic Haiku failed ({type(e).__name__}: {e}); falling back to OpenAI")
 
     # OpenAI fallback. Either Anthropic errored, no Anthropic key, or operator
@@ -1326,6 +1329,7 @@ def generate_ai_turn_text_stream_sync(debate: Debate, messages: List[Message]):
         opponent_messages = [m for m in messages if m.speaker != "assistant"]
         is_rebuttal = len(opponent_messages) > 0
         opponent_speech = opponent_messages[-1].content if is_rebuttal else None
+        mark = billing.checkpoint()
         try:
             result = generate_wsdc_speech(
                 rag=picked_rag,
@@ -1341,6 +1345,7 @@ def generate_ai_turn_text_stream_sync(debate: Debate, messages: List[Message]):
             yield result
             return
         except Exception as e:
+            billing.rollback(mark)
             print(f"[WSDC-stream] Pipeline failed: {e}, falling back")
 
     use_rag = cfg.use_rag and debate.mode == "wsdc" and picked_rag is not None
@@ -1834,10 +1839,10 @@ def generate_drill_claim(
 ) -> str:
     """Generate a claim for the drill based on the motion, position, and weakness type."""
     if not client:
-        return f"Sample claim {claim_position} the motion: {motion}"
+        raise HTTPException(503, "Drill claim generation temporarily unavailable. Please retry.")
 
     position_text = "FOR" if claim_position == "for" else "AGAINST"
-    
+
     # Base prompt for all drill types
     base_instructions = (
         "You are a debate argument generator. Generate a single, strong claim that a debater might make (2-3 sentences max).\n\n"
@@ -1901,9 +1906,11 @@ def generate_drill_claim(
         )
         billing.record_openai(resp, model="gpt-4o-mini", event_type="drill_claim")
         return resp.choices[0].message.content.strip()
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[DRILL] Claim generation failed: {e}")
-        return f"Sample claim {claim_position} the motion: {motion}"
+        raise HTTPException(502, "Drill claim generation temporarily unavailable. Please retry.") from e
 
 
 def score_drill_rebuttal(
@@ -2073,7 +2080,7 @@ def submit_rebuttal_drill(body: DrillRebuttalSubmit):
 def generate_evidence_claim(motion: str, claim_position: Literal["for", "against"]) -> str:
     """Generate a claim that needs evidence (5-6 sentences, on the user's side)."""
     if not client:
-        return f"Sample claim {claim_position} the motion: {motion}"
+        raise HTTPException(503, "Evidence claim generation temporarily unavailable. Please retry.")
 
     position_text = "FOR" if claim_position == "for" else "AGAINST"
 
@@ -2105,9 +2112,11 @@ def generate_evidence_claim(motion: str, claim_position: Literal["for", "against
         )
         billing.record_openai(resp, model="gpt-4o-mini", event_type="evidence_claim")
         return resp.choices[0].message.content.strip()
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[EVIDENCE DRILL] Claim generation failed: {e}")
-        return f"Sample claim {claim_position} the motion: {motion}"
+        raise HTTPException(502, "Evidence claim generation temporarily unavailable. Please retry.") from e
 
 
 def score_evidence(motion: str, claim: str, evidence: str) -> dict:

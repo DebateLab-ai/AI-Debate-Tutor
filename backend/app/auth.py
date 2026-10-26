@@ -1,5 +1,6 @@
 import hashlib
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import Depends, HTTPException, Security, status
@@ -74,7 +75,9 @@ def verify_api_key(raw_key: str = Security(_api_key_header)) -> AuthContext:
 
     # Fire-and-forget last_used_at update — failure here is non-fatal
     try:
-        db.table("api_keys").update({"last_used_at": "now()"}).eq("id", row["id"]).execute()
+        db.table("api_keys").update({
+            "last_used_at": datetime.now(timezone.utc).isoformat(),
+        }).eq("id", row["id"]).execute()
     except Exception:
         pass
 
@@ -99,5 +102,9 @@ async def bind_billing_context(auth: AuthContext = Depends(verify_api_key)) -> A
     # request_id groups every model call this HTTP request makes into one
     # partner usage line. Generated here, in the request's own context, so the
     # endpoint thread inherits it. See the docstring above.
-    billing.set_context(tenant_id=auth.tenant_id, request_id=str(uuid4()))
+    billing.set_context(
+        tenant_id=auth.tenant_id,
+        request_id=str(uuid4()),
+        api_key_id=auth.api_key_id,
+    )
     return auth

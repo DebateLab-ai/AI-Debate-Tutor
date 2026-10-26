@@ -15,9 +15,14 @@ Filtering either one out would make the statement and the cap disagree.
 
 One student turn writes several cost rows (the speech, sometimes two model
 calls, plus moderation). They share a request_id stamped in
-bind_billing_context. /usage/events rolls those rows into one line. Rows from
-before that column existed have a null request_id: they stay in the month
-total and in amount_without_call_id_usd, and they do not appear as lines.
+bind_billing_context, and the same started_at as the api_usage row, so a
+request that crosses midnight cannot split the charge from its line.
+/usage/events rolls those rows into one line. A charge with no line in this
+window — a null request_id, or a request_id whose usage row is not in the
+window — stays in the month total and in amount_without_call_id_usd.
+
+Failed HTTP requests are not in this sum. Their model charges are dropped
+before insert. Auth failures and rate-limit rejections are not api_usage rows.
 
 PostgREST on this project rejects SUM, so the rows are paged and added in
 Decimal. Each stored value is recovered to 8 decimal places before the add,
@@ -259,11 +264,21 @@ def statement_from_rows(
     usage_rows: list[dict[str, Any]],
     per_call_available: bool,
 ) -> dict[str, Any]:
-    """Pure assembly. cost_rows must already be this tenant and this window."""
+    """Pure assembly. cost_rows must already be this tenant and this window.
+
+    sum of every event line's amount plus amount_without_call_id_usd equals
+    amount_due_usd. A charge is on a line only when an api_usage row in this
+    same window carries its request_id.
+    """
     buckets: dict[str, dict[str, Any]] = {}
     total = Decimal(0)
     unlinked = Decimal(0)
     unpriced = 0
+    linked_ids = {
+        str(row["request_id"])
+        for row in usage_rows
+        if per_call_available and row.get("request_id")
+    }
 
     for row in cost_rows:
         kind = partner_kind(row.get("event_type"))
@@ -272,7 +287,8 @@ def statement_from_rows(
         bucket["model_calls"] += 1
         bucket["amount"] += amount
         total += amount
-        if per_call_available and not row.get("request_id"):
+        rid = row.get("request_id")
+        if not per_call_available or not rid or str(rid) not in linked_ids:
             unlinked += amount
         if row.get("needs_repricing"):
             unpriced += 1
@@ -313,7 +329,7 @@ def statement_from_rows(
         "monthly_cap_usd": cap_usd,
         "unpriced_events": unpriced,
         "per_call_available": per_call_available,
-        "amount_without_call_id_usd": money_str(unlinked) if per_call_available else None,
+        "amount_without_call_id_usd": money_str(unlinked),
         "requests": len(usage_rows),
         "requests_with_call_id": with_call_id if per_call_available else 0,
         "requests_by_endpoint": requests_by_endpoint,
@@ -345,17 +361,25 @@ def build_statement(tenant_id: str, period: Optional[str] = None) -> dict[str, A
     )
 
 
-def _charges_for(tenant_id: str, request_ids: list[str]) -> list[dict[str, Any]]:
+def _charges_for(
+    tenant_id: str,
+    request_ids: list[str],
+    start: Optional[datetime],
+    end: Optional[datetime],
+) -> list[dict[str, Any]]:
     if not request_ids:
         return []
 
     def _query(offset: int, page: int):
-        return (
+        query = (
             get_client()
             .table("cost_events")
             .select("id, request_id, debate_id, event_type, vendor_cost_usd")
             .eq("tenant_id", tenant_id)
             .in_("request_id", request_ids)
+        )
+        return (
+            _apply_window(query, start, end)
             .order("id")
             .range(offset, offset + page - 1)
         )
@@ -423,6 +447,7 @@ def list_events(
         page = (
             _apply_window(query, start, end)
             .not_.is_("request_id", "null")
+            .order("created_at", desc=True)
             .order("id", desc=True)
             .range(offset, offset + limit - 1)
             .execute()
@@ -439,7 +464,7 @@ def list_events(
 
     ids = [str(row["request_id"]) for row in page if row.get("request_id")]
     grouped: dict[str, list[dict[str, Any]]] = {}
-    for charge in _charges_for(tenant_id, ids):
+    for charge in _charges_for(tenant_id, ids, start, end):
         grouped.setdefault(str(charge["request_id"]), []).append(charge)
 
     events = []

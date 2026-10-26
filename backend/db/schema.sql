@@ -2,7 +2,7 @@
 --
 -- This mirrors the tables the backend expects at runtime:
 --   * app/auth.py  reads  api_keys  (+ embedded tenants) on every authenticated request
---   * app/usage.py writes api_usage on every authenticated request
+--   * app/usage.py writes api_usage for partner requests that pass auth and the rate limit
 --
 -- Apply via the Supabase SQL editor or `psql`. Safe to re-run (idempotent).
 -- The backend connects with the service role key (see app/db.py), which bypasses
@@ -35,7 +35,8 @@ create table if not exists api_keys (
 create index if not exists idx_api_keys_key_hash  on api_keys(key_hash);
 create index if not exists idx_api_keys_tenant_id  on api_keys(tenant_id);
 
--- api_usage: one row per authenticated API call, for billing/limit accounting.
+-- api_usage: one row per partner request that passed auth and the rate limit.
+-- 401, 403, and 429 are not rows. Other statuses, including 400 and 5xx, are.
 create table if not exists api_usage (
     id              bigint generated always as identity primary key,
     tenant_id       uuid        not null references tenants(id)  on delete cascade,

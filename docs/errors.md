@@ -25,7 +25,7 @@ Don't parse the `detail` string for logic — it is meant for humans. Branch on 
 | `409` | The action conflicts with the current debate state (e.g. it's the AI's turn, not the student's) |
 | `422` | Request body failed validation (missing required field, wrong type) |
 | `429` | Rate limit exceeded. The `Retry-After` header indicates when to retry. |
-| `502` | An upstream AI provider failed; the request is safe to retry |
+| `502` | An upstream AI provider failed; the request is safe to retry. It is not charged |
 | `503` | A subsystem (e.g. PDF rendering) is temporarily unavailable |
 
 ## Common scenarios
@@ -52,11 +52,11 @@ You exceeded one of the [metadata limits](./concepts.md#metadata): 10 fields max
 
 ### `502` on `/turns` or `/finish`
 
-The AI provider (Claude or GPT) returned an error. Retry once. If it keeps failing on the same debate, capture the debate ID and email us.
+The AI provider (Claude or GPT) returned an error. Retry once. That request is not added to `amount_due_usd`. If your key was accepted and you were under the rate limit, it still counts in `requests` and `errors`. If it keeps failing on the same debate, capture the debate ID and email us.
 
 ### `429`
 
-Your API key is sending requests faster than the rate limit allows. The default is 15 requests/minute. Back off using the `Retry-After` header value, or contact us about raising the limit.
+Your API key is sending requests faster than the rate limit allows. The default is 15 requests/minute. Back off using the `Retry-After` header value, or contact us about raising the limit. A 429 is not a usage row. Neither is a 401 or a 403.
 
 ## What we don't expose
 

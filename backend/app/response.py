@@ -252,11 +252,12 @@ class SimpleRAG:
 
                 return resp.choices[0].message.content.strip()
             except Exception as e:
-                # Log internally but NEVER expose prompt or error details to user
+                # Log internally but NEVER expose prompt or error details to user.
+                # Raise so the caller can fall back or fail the request. Returning
+                # an error sentence here was stored as a successful speech.
                 print(f"[ERROR] LLM call failed: {e}")
-                return "[Error generating response. Please try again.]"
-        # Deterministic stub: return a short extractive-looking answer
-        return _stub_answer_from_prompt(prompt)
+                raise
+        raise RuntimeError("OpenAI client is not configured")
 
     # -------------- Public API --------------
     def answer(self, query: str, top_k: int = 4, model: str = "gpt-4o-mini", temperature: float = 0.3) -> Dict:
