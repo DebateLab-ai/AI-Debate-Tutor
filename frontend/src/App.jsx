@@ -5,6 +5,17 @@ import { SEO, StructuredData, breadcrumbSchema } from './SEO'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
+// Create stores the motion as "Topic (User: for, You take the opposite position)".
+// A reload only has that title, so the heading has to be parsed back out of it.
+const SAVED_TITLE = /^(.*) \(User: (for|against), You take the opposite position\)$/i
+
+function topicAndSideFromTitle(title) {
+  if (!title) return null
+  const match = title.match(SAVED_TITLE)
+  if (!match) return { topic: title, position: null }
+  return { topic: match[1], position: match[2].toLowerCase() }
+}
+
 // Fetch with timeout utility
 const fetchWithTimeout = async (url, options = {}, timeoutMs = 60000) => {
   const controller = new AbortController()
@@ -358,6 +369,11 @@ function App() {
       }
       const data = await response.json()
       setDebate(data)
+      const restored = topicAndSideFromTitle(data.title)
+      if (restored) {
+        setTopic(restored.topic)
+        if (restored.position) setPosition(restored.position)
+      }
       // Preserve any optimistic/streaming messages while the AI is generating.
       if (!(aiGenerationInProgressRef.current && aiGenerationTargetIdRef.current === targetId)) {
         setMessages(data.messages || [])
