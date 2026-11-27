@@ -57,9 +57,25 @@ RATE_CARDS: dict[str, dict[str, dict[str, float]]] = {
         # (the partner API has no audio endpoint) — see app/transcriber_processor.py.
         "whisper-1": {"per_minute": 0.006},
     },
+    "2026-11-27": {
+        "claude-sonnet-4-6": {"in": 3.00, "out": 15.00},
+        # Haiku 4.5 kept so any straggler call (or a revert) still prices.
+        "claude-haiku-4-5":  {"in": 1.00, "out":  5.00},
+        # Haiku 5.5 has two rate cards chosen by prompt length. "Prompt length"
+        # counts input + cache reads + cache writes; over the threshold the
+        # WHOLE request (output included) bills at the long rates.
+        "claude-haiku-5-5":  {
+            "in": 0.10, "out": 0.50,
+            "long_threshold": 100_000, "in_long": 0.50, "out_long": 2.50,
+        },
+        "gpt-4o":            {"in": 2.50, "out": 10.00},
+        "gpt-4o-mini":       {"in": 0.15, "out":  0.60},
+        "omni-moderation-latest": {"in": 0.00, "out": 0.00},
+        "whisper-1": {"per_minute": 0.006},
+    },
 }
 
-CURRENT_VERSION = "2026-09-19"
+CURRENT_VERSION = "2026-11-27"
 
 
 def active_card(version: str | None = None) -> dict[str, dict[str, float]]:
@@ -91,11 +107,16 @@ def token_cost_usd(
     if "in" not in p:
         raise UnknownModel(f"{model!r} is not token-billed in this card (got keys {sorted(p)})")
 
+    rate_in, rate_out = p["in"], p["out"]
+    threshold = p.get("long_threshold")
+    if threshold is not None and (input_tokens + cache_read_tokens + cache_write_tokens) > threshold:
+        rate_in, rate_out = p["in_long"], p["out_long"]
+
     return (
-        input_tokens * p["in"] / 1_000_000
-        + cache_read_tokens * p["in"] * CACHE_READ_MULTIPLIER / 1_000_000
-        + cache_write_tokens * p["in"] * CACHE_WRITE_MULTIPLIER / 1_000_000
-        + output_tokens * p["out"] / 1_000_000
+        input_tokens * rate_in / 1_000_000
+        + cache_read_tokens * rate_in * CACHE_READ_MULTIPLIER / 1_000_000
+        + cache_write_tokens * rate_in * CACHE_WRITE_MULTIPLIER / 1_000_000
+        + output_tokens * rate_out / 1_000_000
     )
 
 

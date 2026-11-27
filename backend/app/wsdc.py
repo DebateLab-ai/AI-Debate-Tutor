@@ -6,7 +6,7 @@ Pass 1 — Structure: LLM outputs strict JSON covering opening, arguments,
           Model: Claude Sonnet 4.6 (both tiers).
 
 Pass 2 — Render: LLM renders the JSON to spoken prose.
-          Model: Haiku 4.5 for AP (any tier) and WSDC intermediate;
+          Model: Haiku 5.5 for AP (any tier) and WSDC intermediate;
                  Sonnet 4.6 for WSDC advanced.
           Rationale: Pass 1 carries the argumentation; Pass 2 is delivery.
           AP already uses Haiku successfully — applying it to WSDC
@@ -33,7 +33,23 @@ _anthropic = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 from app import billing
 
 _SONNET = "claude-sonnet-4-6"
-_HAIKU = "claude-haiku-4-5"
+_HAIKU = "claude-haiku-5-5"
+
+
+def haiku_text(resp) -> str:
+    """Final answer text from a Haiku 5.5 response.
+
+    Haiku 5.5 thinks by default, so content can start with `thinking` blocks;
+    read `text` blocks by type, never content[0]. It also runs safety
+    classifiers with no server-side fallback, so a refusal raises here and the
+    caller's existing fallback path takes over.
+    """
+    if resp.stop_reason == "refusal":
+        raise RuntimeError(f"Haiku refused (stop_details={getattr(resp, 'stop_details', None)})")
+    text = "".join(b.text for b in resp.content if b.type == "text").strip()
+    if not text:
+        raise RuntimeError(f"Haiku returned no text (stop_reason={resp.stop_reason})")
+    return text
 
 
 # ── Schema templates shown to the model ───────────────────────────────────
@@ -251,17 +267,26 @@ def _run_pass2(speech_json: dict, difficulty: str, format: str) -> str:
     # "tournament-level" promise. Everything else (AP both tiers, WSDC
     # intermediate) runs on Haiku, ~3x cheaper on output tokens.
     if format == "ap" or difficulty == "intermediate":
-        model = _HAIKU
-    else:
-        model = _SONNET
+        # Haiku 5.5 rejects non-default temperature and thinks by default.
+        # Effort "medium" (2026-11-27 A/B vs "low": tighter weighing, ~+7s per
+        # turn, ~$0.001 more). max_tokens has headroom for thinking on top of
+        # the speech; a medium run used ~3.8K of the 8K.
+        resp = _anthropic.messages.create(
+            model=_HAIKU,
+            max_tokens=8192,
+            output_config={"effort": "medium"},
+            messages=[{"role": "user", "content": prompt}],
+        )
+        billing.record_anthropic(resp, model=_HAIKU, event_type="ai_speech_pass2")
+        return haiku_text(resp)
 
     resp = _anthropic.messages.create(
-        model=model,
+        model=_SONNET,
         max_tokens=4096,
         temperature=0.6,
         messages=[{"role": "user", "content": prompt}],
     )
-    billing.record_anthropic(resp, model=model, event_type="ai_speech_pass2")
+    billing.record_anthropic(resp, model=_SONNET, event_type="ai_speech_pass2")
     return resp.content[0].text.strip()
 
 

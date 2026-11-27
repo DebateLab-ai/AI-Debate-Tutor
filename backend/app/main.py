@@ -814,17 +814,17 @@ def transcribe_with_whisper(audio_bytes: bytes, filename: str = "audio.wav") -> 
     return resp.text
 
 
-# Default scoring backend is Anthropic Haiku 4.5. The SCORING_MODEL env var lets
+# Default scoring backend is Anthropic Haiku 5.5. The SCORING_MODEL env var lets
 # ops force a specific model (any OpenAI chat model with response_format support).
 _SCORING_MODEL_OVERRIDE = os.getenv("SCORING_MODEL", "").strip()
-_SCORING_HAIKU = "claude-haiku-4-5"
+_SCORING_HAIKU = "claude-haiku-5-5"
 
 
 def _call_scoring_llm(system_prompt: str, convo: list[dict], final_user_msg: str, openai_prompt: list[dict]) -> str:
     """Run the scoring LLM call. Returns the raw JSON-shaped string for the caller to parse.
 
     Order of attempts:
-      1. Anthropic Haiku 4.5 (default). Best feedback specificity for the price
+      1. Anthropic Haiku 5.5 (default). Best feedback specificity for the price
          per the comparison test on 2026-06-07.
       2. OpenAI (model from SCORING_MODEL env, else gpt-4o). Used when Anthropic
          errors out (no key, network failure, malformed JSON).
@@ -836,20 +836,25 @@ def _call_scoring_llm(system_prompt: str, convo: list[dict], final_user_msg: str
     if os.getenv("ANTHROPIC_API_KEY") and not _SCORING_MODEL_OVERRIDE.startswith("gpt"):
         kept = False
         try:
-            from app.wsdc import _anthropic  # reuses the shared client
+            from app.wsdc import _anthropic, haiku_text  # reuses the shared client
             # Anthropic needs the transcript as one user message (no system/user
             # interleaving like OpenAI). Reconstruct it from the convo list.
             transcript_text = "\n\n".join(m["content"] for m in convo)
             anth_user = f"{transcript_text}\n\n{final_user_msg}"
+            # Haiku 5.5: no temperature (non-default values 400); thinking is
+            # on by default and counts toward max_tokens, so the old 1024 cap
+            # could truncate the JSON. Effort "medium": in the 2026-11-27 A/B it
+            # caught dropped arguments and overclaims that "low" missed. A medium
+            # run used ~1.8K tokens; 8192 leaves room so the JSON never truncates.
             resp = _anthropic.messages.create(
                 model=_SCORING_HAIKU,
-                max_tokens=1024,
-                temperature=0.5,
+                max_tokens=8192,
+                output_config={"effort": "medium"},
                 system=system_prompt,
                 messages=[{"role": "user", "content": anth_user}],
             )
             kept = billing.record_anthropic(resp, model=_SCORING_HAIKU, event_type="score")
-            raw = resp.content[0].text.strip()
+            raw = haiku_text(resp)
             # Anthropic doesn't have a JSON mode; strip ``` fences if present.
             raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
             raw = re.sub(r"\s*```$", "", raw)
@@ -1064,7 +1069,7 @@ def compute_debate_score(debate: Debate, messages: List[Message]) -> ScoreBreakd
         },
     ]
 
-    # Scoring: Anthropic Haiku 4.5 by default; GPT-4o as fallback when Anthropic
+    # Scoring: Anthropic Haiku 5.5 by default; GPT-4o as fallback when Anthropic
     # is unavailable (missing key, API error, malformed JSON). Haiku gave the
     # best feedback-specificity-per-dollar in the model comparison test:
     # scripts/compare_scoring_models.py. Env override SCORING_MODEL still works

@@ -86,6 +86,20 @@ if abs(c - 3.00 * 1.25) < 1e-9:
 else:
     bad(f"cache-write multiplier wrong: got {c}, expected {3.00 * 1.25}")
 
+# 3b. Haiku 5.5 two-tier pricing: <=100K-token prompts at $0.10/$0.50, larger
+#     prompts (input + cache read + cache write) at $0.50/$2.50 on the whole request.
+c = pricing.token_cost_usd("claude-haiku-5-5", 1_000_000 - 900_000, 1_000_000)
+if abs(c - (100_000 * 0.10 + 1_000_000 * 0.50) / 1_000_000) < 1e-12:
+    ok("Haiku 5.5 at exactly 100K prompt tokens bills on the standard card")
+else:
+    bad(f"Haiku 5.5 standard-tier cost wrong: got {c}")
+c = pricing.token_cost_usd("claude-haiku-5-5", 60_000, 1_000, cache_read_tokens=50_000)
+expected = (60_000 * 0.50 + 50_000 * 0.50 * 0.10 + 1_000 * 2.50) / 1_000_000
+if abs(c - expected) < 1e-12:
+    ok("Haiku 5.5 over 100K (cache reads counted) bills on the long-prompt card")
+else:
+    bad(f"Haiku 5.5 long-tier cost wrong: got {c}, expected {expected}")
+
 # 4. An unknown model must raise, not silently cost zero.
 try:
     pricing.token_cost_usd("definitely-not-a-model", 100, 100)
@@ -104,8 +118,14 @@ speech = (
     pricing.token_cost_usd("claude-sonnet-4-6", 6_000, 1_200)
     + pricing.token_cost_usd("claude-haiku-4-5", 3_000, 1_800)
 )
-print(f"\n  reference WSDC speech (Sonnet 6k/1.2k + Haiku 3k/1.8k) = ${speech:.4f}"
+print(f"\n  reference WSDC speech (Sonnet 6k/1.2k + Haiku 4.5 3k/1.8k) = ${speech:.4f}"
       f"   [COST.md says ~$0.035]")
+# Same speech on Haiku 5.5: its tokenizer counts ~30% more tokens for the same text.
+speech55 = (
+    pricing.token_cost_usd("claude-sonnet-4-6", 6_000, 1_200)
+    + pricing.token_cost_usd("claude-haiku-5-5", 3_900, 2_340)
+)
+print(f"  reference WSDC speech (Sonnet 6k/1.2k + Haiku 5.5 3.9k/2.34k) = ${speech55:.4f}")
 
 print()
 if failures:
