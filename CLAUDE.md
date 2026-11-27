@@ -22,7 +22,7 @@ Before making any changes:
 - **Tenant-scoped storage** — Supabase tables `debates`, `messages`, `scores` with `tenant_id` on every row and ON DELETE CASCADE. RLS enabled. See `backend/db/schema.sql`.
 - **Six public endpoints** under `/api/v1/*` — create / submit-turn / finish-score / get / list / report.pdf. All require `X-API-Key`, all scope by `auth.tenant_id`. See `backend/app/api_v1.py`.
 - **PDF report generation** — two-section partner report (feedback + next drill, then transcript). WeasyPrint + Jinja2 template. See `backend/app/pdf.py` and `backend/app/templates/debate_report.html`.
-- **Haiku scoring with GPT-4o fallback** — Anthropic Haiku 4.5 is primary for `compute_debate_score`; falls back to OpenAI on any Anthropic failure. See `_call_scoring_llm` in `backend/app/main.py`.
+- **Haiku scoring with GPT-4o fallback** — Anthropic Haiku 5.5 is primary for `compute_debate_score` (moved from 4.5 on 2026-11-27); falls back to OpenAI on any Anthropic failure. See `_call_scoring_llm` in `backend/app/main.py`.
 - **Cost optimizations** — intermediate WSDC Pass 2 swapped Sonnet → Haiku, `rag_top_k` 6 → 4 for intermediate, prompt-cache hooks on Pass 1 (caching itself fires below threshold currently — see COST.md note).
 - **7-day retention** — daily cleanup via `.github/workflows/retention-cleanup.yml` running `backend/scripts/run_retention.py`. `api_usage` rows are kept (billing/audit).
 - **Partner-facing docs** — `docs/` directory, nine markdown files, Anthropic-style terse voice. Reveals brand-level AI detail only (Claude/GPT named, no two-pass pipeline disclosed).
@@ -150,8 +150,8 @@ AI-Debate-Tutor/
 |---|---|
 | Frontend | React 18, Vite, react-router-dom v7, @vercel/analytics, Space Grotesk (Google Fonts) |
 | Backend | FastAPI, Uvicorn, Pydantic v1, python-dotenv, supabase-py |
-| AI generation | OpenAI (GPT-4o, GPT-4o-mini), Anthropic (Claude Sonnet 4.6, Claude Haiku 4.5) |
-| AI scoring | Anthropic Haiku 4.5 (default), GPT-4o (fallback) |
+| AI generation | OpenAI (GPT-4o, GPT-4o-mini), Anthropic (Claude Sonnet 4.6, Claude Haiku 5.5) |
+| AI scoring | Anthropic Haiku 5.5 (default), GPT-4o (fallback) |
 | AI transcription | OpenAI Whisper-1 |
 | AI moderation | OpenAI `omni-moderation-latest` |
 | PDF rendering | WeasyPrint + Jinja2 |
@@ -187,9 +187,9 @@ Keep the two-pass implementation internal. Partner-facing docs should describe b
 
 | Path | Used for |
 |---|---|
-| Anthropic Sonnet 4.6 (Pass 1) → Haiku 4.5 (Pass 2) | WSDC/AP, intermediate–advanced. Two-pass: structured JSON outline → rendered prose |
+| Anthropic Sonnet 4.6 (Pass 1) → Haiku 5.5 (Pass 2; Sonnet for WSDC advanced) | WSDC/AP, intermediate–advanced. Two-pass: structured JSON outline → rendered prose |
 | OpenAI GPT-4o-mini | Casual mode, beginner WSDC, any fallback when Anthropic two-pass fails |
-| Anthropic Haiku 4.5 (default) / GPT-4o (fallback) | Scoring (every `/finish` call) |
+| Anthropic Haiku 5.5 (default) / GPT-4o (fallback) | Scoring (every `/finish` call) |
 | OpenAI Whisper-1 | Audio transcription on the website |
 | OpenAI `omni-moderation-latest` | Every input + output safety screen |
 
